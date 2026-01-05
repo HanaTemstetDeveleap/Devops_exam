@@ -12,8 +12,7 @@ on:
       - 'microservices/service1-api/**'
   workflow_dispatch:
 
-permissions:
-  workflows: write
+permissions: write-all
 
 env:
   AWS_REGION: us-east-1
