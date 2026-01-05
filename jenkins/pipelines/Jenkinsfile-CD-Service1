@@ -1,0 +1,103 @@
+// ============================================================================
+// CD Pipeline - Service 1 (REST API)
+// ============================================================================
+// Deploys Service 1 to ECS with specified image version
+// ============================================================================
+
+pipeline {
+    agent any
+
+    parameters {
+        string(
+            name: 'IMAGE_VERSION',
+            defaultValue: 'latest',
+            description: 'Docker image version to deploy (build number or "latest")'
+        )
+    }
+
+    environment {
+        AWS_REGION = 'us-east-1'
+        ECR_REGISTRY = '371670420772.dkr.ecr.us-east-1.amazonaws.com'
+        ECR_REPO = 'devops-exam-service1-api'
+        ECS_CLUSTER = 'devops-exam-cluster'
+        ECS_SERVICE = 'devops-exam-service1'
+    }
+
+    stages {
+        stage('Validate Image') {
+            steps {
+                script {
+                    echo "Validating image version: ${params.IMAGE_VERSION}"
+                    sh '''
+                        aws ecr describe-images \
+                            --repository-name ${ECR_REPO} \
+                            --image-ids imageTag=${IMAGE_VERSION} \
+                            --region ${AWS_REGION} || {
+                                echo "ERROR: Image ${ECR_REPO}:${IMAGE_VERSION} not found in ECR"
+                                exit 1
+                            }
+                        echo "Image verified in ECR"
+                    '''
+                }
+            }
+        }
+
+        stage('Deploy to ECS') {
+            steps {
+                script {
+                    echo "Deploying Service 1 with version ${params.IMAGE_VERSION}..."
+                    sh '''
+                        aws ecs update-service \
+                            --cluster ${ECS_CLUSTER} \
+                            --service ${ECS_SERVICE} \
+                            --force-new-deployment \
+                            --region ${AWS_REGION}
+                        echo "Deployment initiated"
+                    '''
+                }
+            }
+        }
+
+        stage('Wait for Deployment') {
+            steps {
+                script {
+                    echo "Waiting for deployment to stabilize..."
+                    sh '''
+                        aws ecs wait services-stable \
+                            --cluster ${ECS_CLUSTER} \
+                            --services ${ECS_SERVICE} \
+                            --region ${AWS_REGION}
+                        echo "Service is stable"
+                    '''
+                }
+            }
+        }
+
+        stage('Verify Deployment') {
+            steps {
+                script {
+                    echo "Verifying deployment status..."
+                    sh '''
+                        aws ecs describe-services \
+                            --cluster ${ECS_CLUSTER} \
+                            --services ${ECS_SERVICE} \
+                            --region ${AWS_REGION} \
+                            --query 'services[0].[serviceName,status,runningCount,desiredCount]' \
+                            --output table
+                    '''
+                }
+            }
+        }
+    }
+
+    post {
+        success {
+            echo "Service 1 deployed successfully!"
+            echo "Version: ${params.IMAGE_VERSION}"
+            echo "ECS Service: ${ECS_SERVICE}"
+        }
+        failure {
+            echo "Service 1 deployment failed!"
+        }
+    }
+}

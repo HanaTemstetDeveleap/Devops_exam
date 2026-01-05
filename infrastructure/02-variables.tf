@@ -5,7 +5,7 @@
 variable "aws_region" {
   description = "AWS region for all resources"
   type        = string
-  default     = "us-east-1" # Free tier available in all regions
+  default     = "us-east-1"
 }
 
 variable "environment" {
@@ -27,7 +27,8 @@ variable "project_name" {
 variable "api_token" {
   description = "API token for request validation - stored securely in SSM Parameter Store"
   type        = string
-  # default     = "$DJISA<$#45ex3RtYr" # Example token (do not use in production)
+  # No default value - must be provided explicitly for security
+  # This ensures tokens are never hardcoded and are properly managed
   sensitive   = true # Prevents token from appearing in logs
 }
 

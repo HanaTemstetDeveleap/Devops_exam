@@ -1,0 +1,23 @@
+# =============================================================================
+# Example Terraform Variables File
+# Copy this to terraform.tfvars and fill in the values
+# =============================================================================
+
+# Get these values from the main infrastructure outputs:
+# cd ../infrastructure && terraform output
+
+vpc_id             = "vpc-xxxxxxxxxxxxxxxxx"
+private_subnet_ids = ["subnet-xxxxxxxxxxxxxxxxx", "subnet-yyyyyyyyyyyyyyyyy"]
+public_subnet_ids  = ["subnet-zzzzzzzzzzzzzzzzz", "subnet-aaaaaaaaaaaaaaaaa"]
+
+ecr_repository_urls = {
+  service1 = "123456789012.dkr.ecr.us-east-1.amazonaws.com/devops-exam-service1-api"
+  service2 = "123456789012.dkr.ecr.us-east-1.amazonaws.com/devops-exam-service2-consumer"
+}
+
+ecs_cluster_name = "devops-exam-cluster"
+
+ecs_service_names = {
+  service1 = "devops-exam-service1"
+  service2 = "devops-exam-service2"
+}
