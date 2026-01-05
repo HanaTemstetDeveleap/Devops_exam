@@ -35,6 +35,11 @@ Add the following secrets to your repository (Settings → Secrets and variables
 # Create IAM user for GitHub Actions
 aws iam create-user --user-name github-actions-deployer
 
+
+# NOTE:  
+# To keep the setup simple, managed AWS policies were attached to the GitHub Actions IAM user.  
+# In production, a dedicated IAM role with minimal, scoped permissions (least privilege) and GitHub OIDC authentication should be used instead.
+
 # Attach required policies
 aws iam attach-user-policy \
   --user-name github-actions-deployer \

@@ -139,7 +139,7 @@ def process_message():
     # Send data to SQS
     success, result = send_to_sqs(payload['data'])
     if not success:
-        return jsonify({"error": f"Failed to send message: {result}"}), 500
+        return jsonify({"error": f"Failed to send the message: {result}"}), 500
 
     return jsonify({
         "status": "success",
