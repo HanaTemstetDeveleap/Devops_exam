@@ -1,0 +1,199 @@
+# CI/CD with GitHub Actions
+
+This directory contains GitHub Actions workflows for automated CI/CD pipelines for both microservices.
+
+## Workflows
+
+### CI Workflows (Continuous Integration)
+
+| Workflow | Trigger | Purpose |
+|----------|---------|---------|
+| `ci-service1.yml` | Push/PR to `microservices/service1-api/**` | Build and push Service 1 Docker image to ECR |
+| `ci-service2.yml` | Push/PR to `microservices/service2-consumer/**` | Build and push Service 2 Docker image to ECR |
+
+### CD Workflows (Continuous Deployment)
+
+| Workflow | Trigger | Purpose |
+|----------|---------|---------|
+| `cd-service1.yml` | Automatically triggered by CI | Deploy Service 1 to ECS Fargate |
+| `cd-service2.yml` | Automatically triggered by CI | Deploy Service 2 to ECS Fargate |
+
+## Setup Instructions
+
+### 1. Configure GitHub Secrets
+
+Add the following secrets to your repository (Settings → Secrets and variables → Actions):
+
+| Secret Name | Description | Example |
+|-------------|-------------|---------|
+| `AWS_ACCESS_KEY_ID` | AWS access key for GitHub Actions | `AKIAIOSFODNN7EXAMPLE` |
+| `AWS_SECRET_ACCESS_KEY` | AWS secret key for GitHub Actions | `wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY` |
+
+**How to create AWS credentials:**
+
+```bash
+# Create IAM user for GitHub Actions
+aws iam create-user --user-name github-actions-deployer
+
+# Attach required policies
+aws iam attach-user-policy \
+  --user-name github-actions-deployer \
+  --policy-arn arn:aws:iam::aws:policy/AmazonEC2ContainerRegistryPowerUser
+
+aws iam attach-user-policy \
+  --user-name github-actions-deployer \
+  --policy-arn arn:aws:iam::aws:policy/AmazonECS_FullAccess
+
+# Create access keys
+aws iam create-access-key --user-name github-actions-deployer
+```
+
+### 2. How It Works
+
+```
+┌─────────────────────────────────────────────────────────────┐
+│  Developer pushes code to microservices/service1-api/      │
+└──────────────────────┬──────────────────────────────────────┘
+                       │
+                       ▼
+          ┌────────────────────────┐
+          │  CI Workflow Triggered │
+          │  (ci-service1.yml)     │
+          └────────────┬───────────┘
+                       │
+                       ├─► Checkout code
+                       ├─► Configure AWS credentials
+                       ├─► Login to ECR
+                       ├─► Build Docker image
+                       ├─► Push to ECR (tag: commit SHA)
+                       │
+                       ▼
+          ┌────────────────────────┐
+          │  CD Workflow Triggered │
+          │  (cd-service1.yml)     │
+          └────────────┬───────────┘
+                       │
+                       ├─► Validate image in ECR
+                       ├─► Update ECS task definition
+                       ├─► Deploy to ECS Fargate
+                       ├─► Wait for stability
+                       └─► Verify deployment
+```
+
+## Workflow Features
+
+### CI Workflows
+
+- ✅ **Automatic Triggers**: Runs on push to main branch or pull requests
+- ✅ **Path Filtering**: Only runs when relevant service code changes
+- ✅ **Docker Build**: Builds optimized Docker images
+- ✅ **ECR Push**: Pushes images with commit SHA tag + latest tag
+- ✅ **Auto CD Trigger**: Automatically triggers deployment after successful build
+- ✅ **Summary Output**: Shows image details in GitHub Actions summary
+
+### CD Workflows
+
+- ✅ **Image Validation**: Verifies image exists in ECR before deployment
+- ✅ **Rolling Deployment**: Updates ECS service with zero downtime
+- ✅ **Health Checks**: Waits for service to stabilize
+- ✅ **Deployment Verification**: Confirms running tasks match desired count
+- ✅ **Manual Trigger**: Can also be triggered manually with custom image tag
+
+## Manual Deployment
+
+To manually deploy a specific image version:
+
+1. Go to **Actions** tab in GitHub
+2. Select the CD workflow (e.g., "CD - Service 1")
+3. Click **Run workflow**
+4. Enter the image tag (e.g., `abc1234` or `latest`)
+5. Click **Run workflow**
+
+## Monitoring Workflows
+
+### View Workflow Runs
+
+- Navigate to the **Actions** tab in your repository
+- Click on any workflow run to see detailed logs
+- Each step shows real-time output
+
+### GitHub Actions Summary
+
+After each workflow run, you'll see a summary with:
+- Docker image details (CI workflows)
+- Deployment information (CD workflows)
+- Links to AWS resources
+
+## Troubleshooting
+
+### CI Workflow Fails to Push to ECR
+
+**Error**: `denied: Your authorization token has expired`
+
+**Solution**: Check that AWS credentials in GitHub Secrets are valid
+
+```bash
+# Test credentials locally
+aws sts get-caller-identity
+```
+
+### CD Workflow Fails During Deployment
+
+**Error**: `Service cannot be deployed because task definition is invalid`
+
+**Solution**: Check ECS task definition and ensure it's compatible with Fargate
+
+```bash
+# Describe the task definition
+aws ecs describe-task-definition --task-definition devops-exam-service1
+```
+
+### Workflow Doesn't Trigger
+
+**Check**:
+1. Path filters in workflow file match your changes
+2. Branch name is correct (default: `main`)
+3. Workflow file is in `.github/workflows/` directory
+
+## Workflow File Structure
+
+```yaml
+name: Workflow Name
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'path/to/watch/**'
+  workflow_dispatch:
+
+env:
+  AWS_REGION: us-east-1
+  # ... other environment variables
+
+jobs:
+  job-name:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Step name
+        uses: action@version
+        # or
+        run: |
+          command
+```
+
+## Best Practices
+
+1. **Use Specific Actions Versions**: Pin to specific versions (e.g., `@v4`) for reproducibility
+2. **Minimize Secrets**: Only store sensitive data in GitHub Secrets
+3. **Cache Dependencies**: Use caching for faster builds (if needed)
+4. **Fail Fast**: Validate early in the pipeline to save time
+5. **Clear Naming**: Use descriptive job and step names
+6. **Summary Output**: Use `$GITHUB_STEP_SUMMARY` for important information
+
+## Further Reading
+
+- [GitHub Actions Documentation](https://docs.github.com/en/actions)
+- [AWS Actions for GitHub](https://github.com/aws-actions)
+- [Docker Build Push Action](https://github.com/docker/build-push-action)
+- [ECS Deploy Task Definition](https://github.com/aws-actions/amazon-ecs-deploy-task-definition)

@@ -1,0 +1,102 @@
+name: CI - Service 1 (REST API)
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'microservices/service1-api/**'
+      - '.github/workflows/ci-service1.yml'
+  pull_request:
+    branches: [main]
+    paths:
+      - 'microservices/service1-api/**'
+  workflow_dispatch:
+
+env:
+  AWS_REGION: us-east-1
+  ECR_REPOSITORY: devops-exam-service1-api
+
+jobs:
+  build-and-push:
+    name: Build and Push Docker Image
+    runs-on: ubuntu-latest
+
+    outputs:
+      image_tag: ${{ steps.image-info.outputs.image_tag }}
+      ecr_registry: ${{ steps.login-ecr.outputs.registry }}
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Configure AWS credentials
+      uses: aws-actions/configure-aws-credentials@v4
+      with:
+        aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+        aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+        aws-region: ${{ env.AWS_REGION }}
+
+    - name: Login to Amazon ECR
+      id: login-ecr
+      uses: aws-actions/amazon-ecr-login@v2
+
+    - name: Set image tag
+      id: image-info
+      run: |
+        SHORT_SHA=$(echo ${{ github.sha }} | cut -c1-7)
+        echo "image_tag=${SHORT_SHA}" >> $GITHUB_OUTPUT
+        echo "Image tag: ${SHORT_SHA}"
+
+    - name: Build Docker image
+      working-directory: microservices/service1-api
+      env:
+        ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
+        IMAGE_TAG: ${{ steps.image-info.outputs.image_tag }}
+      run: |
+        echo "Building image: $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG"
+        docker build -t $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG .
+        docker tag $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG $ECR_REGISTRY/$ECR_REPOSITORY:latest
+
+    - name: Push Docker image to ECR
+      env:
+        ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
+        IMAGE_TAG: ${{ steps.image-info.outputs.image_tag }}
+      run: |
+        echo "Pushing image: $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG"
+        docker push $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG
+        docker push $ECR_REGISTRY/$ECR_REPOSITORY:latest
+        echo "✅ Image pushed successfully"
+
+    - name: Output image details
+      env:
+        ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
+        IMAGE_TAG: ${{ steps.image-info.outputs.image_tag }}
+      run: |
+        echo "### Docker Image Built 🐳" >> $GITHUB_STEP_SUMMARY
+        echo "" >> $GITHUB_STEP_SUMMARY
+        echo "- **Repository:** $ECR_REPOSITORY" >> $GITHUB_STEP_SUMMARY
+        echo "- **Tag:** $IMAGE_TAG" >> $GITHUB_STEP_SUMMARY
+        echo "- **Full URI:** $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG" >> $GITHUB_STEP_SUMMARY
+
+  trigger-cd:
+    name: Trigger CD Workflow
+    needs: build-and-push
+    runs-on: ubuntu-latest
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+
+    steps:
+    - name: Trigger CD workflow
+      uses: actions/github-script@v7
+      with:
+        script: |
+          console.log('Triggering CD workflow for Service 1');
+          await github.rest.actions.createWorkflowDispatch({
+            owner: context.repo.owner,
+            repo: context.repo.repo,
+            workflow_id: 'cd-service1.yml',
+            ref: 'main',
+            inputs: {
+              image_tag: '${{ needs.build-and-push.outputs.image_tag }}'
+            }
+          });
+          console.log('✅ CD workflow triggered successfully');
