@@ -48,3 +48,55 @@ output "ssm_parameter_name" {
   description = "Name of SSM parameter storing the API token"
   value       = aws_ssm_parameter.api_token.name
 }
+
+# =============================================================================
+# VPC Outputs - Network information
+# =============================================================================
+
+output "vpc_id" {
+  description = "ID of the VPC"
+  value       = aws_vpc.main.id
+}
+
+output "private_subnet_ids" {
+  description = "IDs of private subnets"
+  value       = aws_subnet.private[*].id
+}
+
+output "public_subnet_ids" {
+  description = "IDs of public subnets"
+  value       = aws_subnet.public[*].id
+}
+
+# =============================================================================
+# ALB Outputs - Load balancer information
+# =============================================================================
+
+output "alb_dns_name" {
+  description = "DNS name of the Application Load Balancer - USE THIS TO ACCESS SERVICE 1"
+  value       = aws_lb.main.dns_name
+}
+
+output "alb_url" {
+  description = "Full URL to access Service 1 API"
+  value       = "http://${aws_lb.main.dns_name}"
+}
+
+# =============================================================================
+# ECS Outputs - Cluster and service information
+# =============================================================================
+
+output "ecs_cluster_name" {
+  description = "Name of the ECS cluster"
+  value       = aws_ecs_cluster.main.name
+}
+
+output "ecs_service1_name" {
+  description = "Name of Service 1 ECS service"
+  value       = aws_ecs_service.service1.name
+}
+
+output "ecs_service2_name" {
+  description = "Name of Service 2 ECS service"
+  value       = aws_ecs_service.service2.name
+}
