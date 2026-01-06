@@ -12,6 +12,8 @@ on:
       - 'microservices/service2-consumer/**'
   workflow_dispatch:
 
+permissions: write-all
+
 env:
   AWS_REGION: us-east-1
   ECR_REPOSITORY: devops-exam-service2-consumer
