@@ -1,5 +1,13 @@
 # Infrastructure - AWS Microservices Platform
 
+### First deployment
+
+On the first `terraform apply`, ECR repositories are created but container images do not exist yet.
+Therefore, ECS services are created with `desired_count = 0`.
+
+After CI builds and pushes the images to ECR, run the CD workflow and then set `desired_count = 1` and apply Terraform again.
+
+
 This directory contains Terraform Infrastructure as Code (IaC) for deploying a complete microservices platform on AWS.
 
 ## Architecture Overview

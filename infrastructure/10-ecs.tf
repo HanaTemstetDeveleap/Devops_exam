@@ -157,7 +157,7 @@ resource "aws_ecs_service" "service1" {
   name            = "${var.project_name}-service1"
   cluster         = aws_ecs_cluster.main.id
   task_definition = aws_ecs_task_definition.service1.arn
-  desired_count   = 1 # Number of tasks to run
+  desired_count   = 1 # Number of tasks to run  - Set to 0 on first deployment until container images are pushed to ECR
   launch_type     = "FARGATE"
 
   # Network configuration - private subnets with ALB
@@ -191,7 +191,7 @@ resource "aws_ecs_service" "service2" {
   name            = "${var.project_name}-service2"
   cluster         = aws_ecs_cluster.main.id
   task_definition = aws_ecs_task_definition.service2.arn
-  desired_count   = 1
+  desired_count   = 1 # Number of tasks to run  - Set to 0 on first deployment until container images are pushed to ECR
   launch_type     = "FARGATE"
 
   # Network configuration - private subnets, no load balancer
