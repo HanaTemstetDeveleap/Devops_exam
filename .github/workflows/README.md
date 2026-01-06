@@ -8,8 +8,8 @@ This directory contains GitHub Actions workflows for automated CI/CD pipelines f
 
 | Workflow | Trigger | Purpose |
 |----------|---------|---------|
-| `ci-service1.yml` | Push/PR to `microservices/service1-api/**` | Build and push Service 1 Docker image to ECR |
-| `ci-service2.yml` | Push/PR to `microservices/service2-consumer/**` | Build and push Service 2 Docker image to ECR |
+| `ci-service1.yml` | Push/PR to `microservices/service1-api/**` | Run tests, build and push Service 1 Docker image to ECR |
+| `ci-service2.yml` | Push/PR to `microservices/service2-consumer/**` | Run tests, build and push Service 2 Docker image to ECR |
 
 ### CD Workflows (Continuous Deployment)
 
@@ -67,6 +67,9 @@ aws iam create-access-key --user-name github-actions-deployer
           └────────────┬───────────┘
                        │
                        ├─► Checkout code
+                       ├─► Set up Python 3.11
+                       ├─► Install dependencies
+                       ├─► Run pytest with coverage
                        ├─► Configure AWS credentials
                        ├─► Login to ECR
                        ├─► Build Docker image
@@ -91,10 +94,13 @@ aws iam create-access-key --user-name github-actions-deployer
 
 - ✅ **Automatic Triggers**: Runs on push to main branch or pull requests
 - ✅ **Path Filtering**: Only runs when relevant service code changes
+- ✅ **Automated Testing**: Runs pytest with coverage before building
+- ✅ **Test Coverage**: Reports code coverage for each service
+- ✅ **Fail Fast**: Build only proceeds if all tests pass
 - ✅ **Docker Build**: Builds optimized Docker images
 - ✅ **ECR Push**: Pushes images with commit SHA tag + latest tag
 - ✅ **Auto CD Trigger**: Automatically triggers deployment after successful build
-- ✅ **Summary Output**: Shows image details in GitHub Actions summary
+- ✅ **Summary Output**: Shows test results and image details in GitHub Actions summary
 
 ### CD Workflows
 
@@ -113,6 +119,70 @@ To manually deploy a specific image version:
 3. Click **Run workflow**
 4. Enter the image tag (e.g., `abc1234` or `latest`)
 5. Click **Run workflow**
+
+## Testing
+
+Both microservices include comprehensive automated tests that run in the CI pipeline:
+
+### Test Structure
+
+```
+microservices/
+├── service1-api/
+│   ├── app.py
+│   ├── requirements.txt
+│   ├── test-requirements.txt       # Test dependencies (pytest, moto, etc.)
+│   └── test_app.py                 # Unit and integration tests
+└── service2-consumer/
+    ├── app.py
+    ├── requirements.txt
+    ├── test-requirements.txt       # Test dependencies
+    └── test_app.py                 # Unit and integration tests
+```
+
+### Service 1 Tests (REST API)
+
+**15 tests covering:**
+- Payload validation (missing fields, invalid structure)
+- Token validation with SSM Parameter Store
+- Token caching mechanism
+- SQS message sending
+- API endpoints (health check, success/error flows)
+
+**Run locally:**
+```bash
+cd microservices/service1-api
+pip install -r requirements.txt -r test-requirements.txt
+pytest test_app.py -v --cov=app --cov-report=term-missing
+```
+
+### Service 2 Tests (SQS Consumer)
+
+**10 tests covering:**
+- S3 upload functionality
+- Hierarchical path creation (date-based)
+- SQS message processing
+- Queue polling (empty queue, partial success)
+- End-to-end message flow
+
+**Run locally:**
+```bash
+cd microservices/service2-consumer
+pip install -r requirements.txt -r test-requirements.txt
+pytest test_app.py -v --cov=app --cov-report=term-missing
+```
+
+### Mocked AWS Services
+
+Tests use the **moto** library to mock AWS services:
+- SSM Parameter Store (for API tokens)
+- SQS (for message queuing)
+- S3 (for file storage)
+
+This ensures:
+- No actual AWS costs during testing
+- Fast, isolated test execution
+- Consistent, repeatable results
 
 ## Monitoring Workflows
 
@@ -159,6 +229,22 @@ aws ecs describe-task-definition --task-definition devops-exam-service1
 1. Path filters in workflow file match your changes
 2. Branch name is correct (default: `main`)
 3. Workflow file is in `.github/workflows/` directory
+
+### Tests Fail in CI
+
+**Error**: `ModuleNotFoundError: No module named 'pytest'`
+
+**Solution**: Ensure `test-requirements.txt` is present and being installed
+
+```bash
+# Verify test dependencies file exists
+ls microservices/service1-api/test-requirements.txt
+ls microservices/service2-consumer/test-requirements.txt
+```
+
+**Error**: `ImportError: cannot import name 'app'`
+
+**Solution**: Check that `app.py` exists in the same directory as `test_app.py`
 
 ## Workflow File Structure
 
