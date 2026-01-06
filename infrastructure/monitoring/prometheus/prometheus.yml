@@ -1,0 +1,71 @@
+# Prometheus Configuration for DevOps Exam Monitoring
+# This configuration scrapes metrics from both microservices
+
+global:
+  scrape_interval: 15s      # Scrape targets every 15 seconds
+  evaluation_interval: 15s  # Evaluate rules every 15 seconds
+  external_labels:
+    cluster: 'devops-exam'
+    environment: 'production'
+
+# Alerting configuration (optional - for future use)
+alerting:
+  alertmanagers:
+    - static_configs:
+        - targets: []
+
+# Load rules once and periodically evaluate them
+rule_files:
+  # - "alerts.yml"  # Uncomment if you add alerting rules
+
+# Scrape configurations
+scrape_configs:
+  # Scrape Prometheus itself
+  - job_name: 'prometheus'
+    static_configs:
+      - targets: ['localhost:9090']
+        labels:
+          service: 'prometheus'
+
+  # Service 1 - REST API (Producer)
+  # Exposes metrics on /metrics endpoint at port 8080
+  # Uses DNS-based service discovery via AWS Cloud Map
+  - job_name: 'service1-api'
+    metrics_path: '/metrics'
+    scrape_interval: 10s
+    dns_sd_configs:
+      - names:
+          - 'service1.local'
+        type: 'A'
+        port: 8080
+    relabel_configs:
+      - source_labels: [__address__]
+        target_label: instance
+      - target_label: service
+        replacement: 'service1-api'
+      - target_label: job
+        replacement: 'service1-api'
+
+  # Service 2 - SQS Consumer
+  # Exposes metrics on a separate HTTP server at port 8000
+  # Uses DNS-based service discovery via AWS Cloud Map
+  - job_name: 'service2-consumer'
+    metrics_path: '/metrics'
+    scrape_interval: 10s
+    dns_sd_configs:
+      - names:
+          - 'service2.local'
+        type: 'A'
+        port: 8000
+    relabel_configs:
+      - source_labels: [__address__]
+        target_label: instance
+      - target_label: service
+        replacement: 'service2-consumer'
+      - target_label: job
+        replacement: 'service2-consumer'
+
+# Storage configuration
+# Note: Retention time and size are configured via command-line flags in the Dockerfile
+# --storage.tsdb.retention.time=7d
+# --storage.tsdb.retention.size=1GB
