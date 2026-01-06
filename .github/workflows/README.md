@@ -24,21 +24,20 @@ This directory contains GitHub Actions workflows for automated CI/CD pipelines f
 
 Add the following secrets to your repository (Settings → Secrets and variables → Actions):
 
-| Secret Name | Description | Example |
-|-------------|-------------|---------|
-| `AWS_ACCESS_KEY_ID` | AWS access key for GitHub Actions | `AKIAIOSFODNN7EXAMPLE` |
-| `AWS_SECRET_ACCESS_KEY` | AWS secret key for GitHub Actions | `wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY` |
+| Secret Name | Description |
+|-------------|-------------|
+| `AWS_ACCESS_KEY_ID` | AWS access key for GitHub Actions |
+| `AWS_SECRET_ACCESS_KEY` | AWS secret key for GitHub Actions |
 
 **How to create AWS credentials:**
-
-```bash
-# Create IAM user for GitHub Actions
-aws iam create-user --user-name github-actions-deployer
-
 
 # NOTE:  
 # To keep the setup simple, managed AWS policies were attached to the GitHub Actions IAM user.  
 # In production, a dedicated IAM role with minimal, scoped permissions (least privilege) and GitHub OIDC authentication should be used instead.
+
+```bash
+# Create IAM user for GitHub Actions
+aws iam create-user --user-name github-actions-deployer
 
 # Attach required policies
 aws iam attach-user-policy \

@@ -113,13 +113,13 @@ The `api_token` variable is **required** and has no default for security:
 
 ```bash
 # Option 1: Export as environment variable
-export TF_VAR_api_token='$DJISA<$#45ex3RtYr'
+export TF_VAR_api_token='XXXXXXXXXXXXX'
 
 # Option 2: Pass via command line
-terraform plan -var='api_token=$DJISA<$#45ex3RtYr'
+terraform plan -var='api_token=XXXXXXXXXXXXX'
 
 # Option 3: Create terraform.tfvars (DO NOT COMMIT)
-echo 'api_token = "$DJISA<$#45ex3RtYr"' > terraform.tfvars
+echo 'api_token = "XXXXXXXXXXXXX"' > terraform.tfvars
 ```
 
 **Security Note**: Never commit tokens to Git. The token is stored encrypted in SSM Parameter Store.
@@ -208,7 +208,7 @@ curl -X POST "http://${ALB_URL}/api/message" \
       "email_timestream": "2026-01-05T12:00:00Z",
       "email_content": "This is a test message"
     },
-    "token": "$DJISA<$#45ex3RtYr"
+    "token": "XXXXXXXXXXXXX"  # PUT RIGHT_TOKEN
   }'
 ```
 
