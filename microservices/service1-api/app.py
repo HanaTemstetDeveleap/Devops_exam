@@ -79,7 +79,7 @@ def validate_token(provided_token):
         if provided_token == expected_token:
             return True, None
         else:
-            return False, "Invalid ???token"
+            return False, "Invalid token"
     except Exception as e:
         app.logger.error(f"Token validation error: {e}")
         return False, "Token validation failed"

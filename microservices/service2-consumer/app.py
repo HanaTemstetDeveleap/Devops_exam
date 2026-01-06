@@ -102,7 +102,7 @@ def poll_sqs():
             print("○ No messages in queue")
             return 0
 
-        print(f"● Received {len(messages)} message(s) from queue")
+        print(f"● Received {len(messages)} message(s) from queue...")
 
         # Process each message
         successful = 0
