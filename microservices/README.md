@@ -46,12 +46,6 @@ Two containerized Python microservices implementing asynchronous message process
 }
 ```
 
-**Security Features**:
-- Token validation against AWS SSM Parameter Store
-- Token caching (in-memory, 5-minute TTL) to reduce SSM API calls
-- Payload validation (all 4 fields required)
-- IAM role-based authentication (no hardcoded credentials)
-
 ---
 
 ### Service 2: SQS Consumer (`service2-consumer/`)
@@ -70,11 +64,6 @@ Two containerized Python microservices implementing asynchronous message process
 - Message ID from SQS as filename
 - JSON format with metadata
 
-**Security Features**:
-- IAM role-based access (no hardcoded credentials)
-- Least privilege permissions (SQS receive/delete, S3 write only)
-- S3 encryption at rest (SSE-S3)
-- Message validation before upload
 
 ---
 

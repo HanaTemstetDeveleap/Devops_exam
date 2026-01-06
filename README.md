@@ -65,11 +65,6 @@ Internet → ALB → Service 1 (REST API) → SQS Queue → Service 2 (Consumer)
 - **No secrets in code** - All sensitive values stored in GitHub Secrets
 - **Image scanning** - ECR images can be scanned for vulnerabilities (optional)
 
-**Note**: For production, this architecture should be enhanced with:
-- AWS KMS customer-managed keys for encryption
-- VPC Flow Logs for network monitoring
-- AWS WAF on ALB for application-layer protection
-- GitHub OIDC authentication instead of IAM user credentials
 
 ---
 

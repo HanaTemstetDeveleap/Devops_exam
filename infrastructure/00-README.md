@@ -180,16 +180,19 @@ terraform apply
 
 **What's created**:
 - VPC with 2 public + 2 private subnets
-- NAT Gateway for private subnet internet access
-- VPC endpoints for S3, SQS, ECR, SSM
-- Security groups for ALB and services
+- Internet Gateway (no NAT Gateway - using VPC endpoints instead)
+- VPC endpoints for S3, SQS, ECR (API & DKR), SSM, CloudWatch Logs
+- Security groups for ALB, services (Service 1, Service 2), monitoring, and VPC endpoints
 - ECS cluster with Container Insights enabled
-- ECR repositories (empty, waiting for images)
-- S3 bucket with encryption
-- SQS queue with DLQ
-- SSM parameter with encrypted token
-- ALB with HTTP listener
-- ECS services with `desired_count=0`
+- AWS Cloud Map namespace (`local`) with service discovery for Service 1, Service 2, and Prometheus
+- ECR repositories for Service 1, Service 2, and Prometheus (with lifecycle policies)
+- S3 bucket with versioning, encryption, and lifecycle configuration
+- SQS queue with DLQ and redrive policy
+- SSM parameter with encrypted API token
+- ALB with HTTP listener and target group for Service 1
+- ECS task definitions and services for Service 1, Service 2, Prometheus, and Grafana
+- CloudWatch log groups for all services (7-day retention)
+- IAM roles and policies for ECS task execution and service-specific permissions
 
 ---
 
