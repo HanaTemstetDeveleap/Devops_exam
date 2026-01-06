@@ -31,9 +31,9 @@ Add the following secrets to your repository (Settings → Secrets and variables
 
 **How to create AWS credentials:**
 
-# NOTE:  
-# To keep the setup simple, managed AWS policies were attached to the GitHub Actions IAM user.  
-# In production, a dedicated IAM role with minimal, scoped permissions (least privilege) and GitHub OIDC authentication should be used instead.
+**NOTE:**
+**To keep the setup simple, managed AWS policies were attached to the GitHub Actions IAM user.**
+**In production, a dedicated IAM role with minimal, scoped permissions (least privilege) and GitHub OIDC authentication should be used instead.**
 
 ```bash
 # Create IAM user for GitHub Actions
