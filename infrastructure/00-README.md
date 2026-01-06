@@ -47,9 +47,12 @@ Complete Infrastructure as Code implementation using Terraform for a production-
 | **SQS** | Message queue with DLQ | Encrypted, 7-day retention |
 | **S3** | Message storage | SSE-S3 encryption, versioning |
 | **SSM** | Secure token storage | Encrypted at rest, IAM-based access |
-| **ECR** | Docker image repositories | Private, lifecycle policies |
-| **ECS Fargate** | Container orchestration | No EC2 management, auto-scaling ready |
-| **VPC Endpoints** | Private AWS API access | No NAT Gateway needed for some services |
+| **ECR** | Docker image repositories | Private, lifecycle policies (3 repos) |
+| **ECS Fargate** | Container orchestration | No EC2 management, 4 services |
+| **Prometheus** | Metrics collection | Private subnet, Cloud Map discovery |
+| **Grafana** | Metrics visualization | Public subnet for reviewer access |
+| **Cloud Map** | Service discovery | DNS-based discovery (*.local) |
+| **VPC Endpoints** | Private AWS API access | No NAT Gateway, 6 endpoints total |
 
 ---
 
@@ -61,7 +64,7 @@ Files are numbered in **logical dependency order** for easy reading:
 |------|-------------|---------------|
 | [01-provider.tf](01-provider.tf) | AWS provider, Terraform version | Provider config, backend |
 | [02-variables.tf](02-variables.tf) | Input variables with defaults | Region, environment, tokens |
-| [03-vpc.tf](03-vpc.tf) | VPC, subnets, routing, security | VPC, subnets, NAT, VPC endpoints, security groups |
+| [03-vpc.tf](03-vpc.tf) | VPC, subnets, routing, security | VPC, subnets, Internet Gateway, VPC endpoints, security groups |
 | [04-iam.tf](04-iam.tf) | IAM roles and policies | ECS task roles, execution roles |
 | [05-ecr.tf](05-ecr.tf) | Docker registries | Service 1, Service 2, Prometheus repos |
 | [06-s3.tf](06-s3.tf) | S3 bucket for messages | Encryption, versioning, lifecycle |
@@ -108,6 +111,7 @@ The AWS user/role needs permissions for:
 - IAM (roles, policies)
 - CloudWatch Logs, CloudWatch (logging, metrics)
 - Elastic Load Balancing (ALB, target groups)
+- Service Discovery (Cloud Map namespaces and services)
 
 **Recommended**: Use `AdministratorAccess` for exam, or create custom policy with scoped permissions for production.
 
@@ -235,22 +239,22 @@ After images are in ECR, deploy them to ECS:
 ```bash
 # Update Service 1
 aws ecs update-service \
-  --cluster devops-exam-cluster-dev \
-  --service devops-exam-service1-dev \
+  --cluster devops-exam-cluster \
+  --service devops-exam-service1 \
   --desired-count 1 \
   --force-new-deployment
 
 # Update Service 2
 aws ecs update-service \
-  --cluster devops-exam-cluster-dev \
-  --service devops-exam-service2-dev \
+  --cluster devops-exam-cluster \
+  --service devops-exam-service2 \
   --desired-count 1 \
   --force-new-deployment
 
 # Wait for services to stabilize (takes ~2-3 minutes)
 aws ecs wait services-stable \
-  --cluster devops-exam-cluster-dev \
-  --services devops-exam-service1-dev devops-exam-service2-dev
+  --cluster devops-exam-cluster \
+  --services devops-exam-service1 devops-exam-service2
 ```
 
 **Alternative**: Update `desired_count` in `10-ecs.tf` from `0` to `1` and run `terraform apply` again.
@@ -372,14 +376,14 @@ aws s3 cp s3://$BUCKET/messages/$(date +%Y/%m/%d)/<message_id>.json - | jq .
 ```bash
 # View Service 1 status
 aws ecs describe-services \
-  --cluster devops-exam-cluster-dev \
-  --services devops-exam-service1-dev \
+  --cluster devops-exam-cluster \
+  --services devops-exam-service1 \
   --query 'services[0].{Status:status,Running:runningCount,Desired:desiredCount,Events:events[:3]}'
 
 # View Service 2 status
 aws ecs describe-services \
-  --cluster devops-exam-cluster-dev \
-  --services devops-exam-service2-dev \
+  --cluster devops-exam-cluster \
+  --services devops-exam-service2 \
   --query 'services[0].{Status:status,Running:runningCount,Desired:desiredCount,Events:events[:3]}'
 ```
 
@@ -501,6 +505,7 @@ This infrastructure implements **defense-in-depth** security:
 | **ECR API** | Interface | Pull image manifests | $7/month |
 | **ECR DKR** | Interface | Pull Docker layers | $7/month |
 | **SSM** | Interface | Retrieve SSM parameters | $7/month |
+| **CloudWatch Logs** | Interface | Send logs from containers | $7/month |
 
 **Cost & Security Benefits**:
 - ✅ **No NAT Gateway**: Saves $32/month + data transfer costs (~$0.045/GB)
@@ -515,18 +520,18 @@ This infrastructure implements **defense-in-depth** security:
 
 | Service | Specs | Monthly Cost | Free Tier |
 |---------|-------|--------------|-----------|
-| **ECS Fargate** | 2 tasks × 0.25 vCPU × 0.5 GB RAM | $0-5 | First 20 GB-hrs/month free |
+| **ECS Fargate** | 4 tasks × 0.25 vCPU × 0.5 GB RAM | $0-8 | First 20 GB-hrs/month free |
 | **ALB** | Standard, minimal traffic | $16 | None |
-| **VPC Endpoints** | 4 interface endpoints | $28 | **No NAT Gateway!** |
+| **VPC Endpoints** | 5 interface endpoints | $35 | **No NAT Gateway!** |
 | **S3** | <5 GB storage, <20k requests | $0 | 5 GB, 20k GET, 2k PUT free |
 | **SQS** | <1M requests/month | $0 | 1M requests free |
 | **ECR** | <500 MB storage | $0 | 500 MB free |
 | **CloudWatch Logs** | <5 GB ingestion | $0 | 5 GB free |
 
-**Total Estimated Cost**: **$44-49/month**
+**Total Estimated Cost**: **$51-59/month**
 
 **Breakdown**:
-- **Mandatory**: ALB ($16) + VPC Endpoints ($28) = $44/month
+- **Mandatory**: ALB ($16) + VPC Endpoints ($35) = $51/month
 - **NAT Gateway**: $0 (not used - VPC endpoints instead!)
 - **Negligible**: ECS, S3, SQS, ECR, CloudWatch (covered by free tier)
 
@@ -554,14 +559,14 @@ This infrastructure implements **defense-in-depth** security:
 **Diagnosis**:
 ```bash
 # List tasks (may be empty)
-aws ecs list-tasks --cluster devops-exam-cluster-dev --service-name devops-exam-service1-dev
+aws ecs list-tasks --cluster devops-exam-cluster --service-name devops-exam-service1
 
 # If task exists, describe it
-aws ecs describe-tasks --cluster devops-exam-cluster-dev --tasks <TASK_ARN>
+aws ecs describe-tasks --cluster devops-exam-cluster --tasks <TASK_ARN>
 
 # Check stopped tasks (for error messages)
-aws ecs list-tasks --cluster devops-exam-cluster-dev --desired-status STOPPED
-aws ecs describe-tasks --cluster devops-exam-cluster-dev --tasks <STOPPED_TASK_ARN>
+aws ecs list-tasks --cluster devops-exam-cluster --desired-status STOPPED
+aws ecs describe-tasks --cluster devops-exam-cluster --tasks <STOPPED_TASK_ARN>
 ```
 
 **Common Causes**:
