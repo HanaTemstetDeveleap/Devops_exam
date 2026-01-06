@@ -196,17 +196,3 @@ aws logs tail /ecs/devops-exam/service2 --follow | grep metrics
 - Grafana: 0.25 vCPU, 0.5 GB RAM
 - CloudWatch Logs: ~1 GB/month (within free tier)
 
----
-
-## Security Notes
-
-**Current setup** (exam-friendly):
-- Grafana publicly accessible (0.0.0.0/0) on port 3000
-- Default credentials
-- No HTTPS
-
-**For production**:
-- Restrict Grafana access via ALB + security groups
-- Use AWS Secrets Manager for credentials
-- Enable HTTPS with ACM certificate
-- Enable Prometheus authentication
