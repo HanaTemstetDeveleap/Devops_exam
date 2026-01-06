@@ -1,2 +1,4 @@
 boto3==1.34.51
 botocore==1.34.51
+
+prometheus_client==0.16.0

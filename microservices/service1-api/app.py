@@ -7,6 +7,7 @@ import os
 import json
 import boto3
 from flask import Flask, request, jsonify
+from prometheus_client import Counter, Histogram, generate_latest, CONTENT_TYPE_LATEST
 from botocore.exceptions import ClientError
 
 # Initialize Flask app
@@ -22,6 +23,12 @@ SQS_QUEUE_URL = os.getenv('SQS_QUEUE_URL')
 
 # Cache for API token (avoid calling SSM on every request)
 api_token_cache = None
+
+# Prometheus metrics
+REQUESTS_TOTAL = Counter('service1_requests_total', 'Total HTTP requests received')
+REQUEST_LATENCY = Histogram('service1_request_latency_seconds', 'Request latency seconds')
+MESSAGES_SENT = Counter('service1_messages_sent_total', 'Total messages sent to SQS')
+MESSAGES_SEND_ERRORS = Counter('service1_messages_send_errors_total', 'Total failed SQS sends')
 
 
 def get_api_token():
@@ -92,9 +99,11 @@ def send_to_sqs(data):
             QueueUrl=SQS_QUEUE_URL,
             MessageBody=json.dumps(data)
         )
+        MESSAGES_SENT.inc()
         return True, response['MessageId']
     except ClientError as e:
         app.logger.error(f"Failed to send message to SQS: {e}")
+        MESSAGES_SEND_ERRORS.inc()
         return False, str(e)
 
 
@@ -102,6 +111,11 @@ def send_to_sqs(data):
 def health_check():
     """Health check endpoint"""
     return jsonify({"status": "healthy"}), 200
+
+
+@app.route('/metrics')
+def metrics():
+    return generate_latest(), 200, {'Content-Type': CONTENT_TYPE_LATEST}
 
 
 @app.route('/api/message', methods=['POST'])
@@ -120,32 +134,34 @@ def process_message():
         "token": "..."
     }
     """
-    # Get JSON payload
-    if not request.is_json:
-        return jsonify({"error": "Content-Type must be application/json"}), 400
+    REQUESTS_TOTAL.inc()
+    with REQUEST_LATENCY.time():
+        # Get JSON payload
+        if not request.is_json:
+            return jsonify({"error": "Content-Type must be application/json"}), 400
 
-    payload = request.get_json()
+        payload = request.get_json()
 
-    # Validate payload structure
-    is_valid, error_msg = validate_payload(payload)
-    if not is_valid:
-        return jsonify({"error": error_msg}), 400
+        # Validate payload structure
+        is_valid, error_msg = validate_payload(payload)
+        if not is_valid:
+            return jsonify({"error": error_msg}), 400
 
-    # Validate token
-    is_valid, error_msg = validate_token(payload['token'])
-    if not is_valid:
-        return jsonify({"error": error_msg}), 401
+        # Validate token
+        is_valid, error_msg = validate_token(payload['token'])
+        if not is_valid:
+            return jsonify({"error": error_msg}), 401
 
-    # Send data to SQS
-    success, result = send_to_sqs(payload['data'])
-    if not success:
-        return jsonify({"error": f"Failed to send message: {result}"}), 500
+        # Send data to SQS
+        success, result = send_to_sqs(payload['data'])
+        if not success:
+            return jsonify({"error": f"Failed to send message: {result}"}), 500
 
-    return jsonify({
-        "status": "success",
-        "message": "Message sent to queue",
-        "message_id": result
-    }), 200
+        return jsonify({
+            "status": "success",
+            "message": "Message sent to queue",
+            "message_id": result
+        }), 200
 
 
 if __name__ == '__main__':

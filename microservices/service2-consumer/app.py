@@ -9,6 +9,7 @@ import time
 import boto3
 from datetime import datetime
 from botocore.exceptions import ClientError
+from prometheus_client import Counter, start_http_server
 
 # AWS clients
 sqs_client = boto3.client('sqs', region_name=os.getenv('AWS_REGION', 'us-east-1'))
@@ -19,6 +20,13 @@ SQS_QUEUE_URL = os.getenv('SQS_QUEUE_URL')
 S3_BUCKET_NAME = os.getenv('S3_BUCKET_NAME')
 POLL_INTERVAL = int(os.getenv('POLL_INTERVAL', '10'))  # Seconds between polls
 MAX_MESSAGES = int(os.getenv('MAX_MESSAGES', '10'))  # Max messages per poll
+
+# Prometheus metrics
+POLLS_TOTAL = Counter('service2_polls_total', 'Total SQS poll attempts')
+MESSAGES_RECEIVED = Counter('service2_messages_received_total', 'Total messages received from SQS')
+MESSAGES_PROCESSED = Counter('service2_messages_processed_total', 'Total messages successfully processed')
+S3_UPLOADS = Counter('service2_s3_uploads_total', 'Total S3 uploads')
+S3_UPLOAD_ERRORS = Counter('service2_s3_upload_errors_total', 'Total failed S3 uploads')
 
 
 def upload_to_s3(message_data, message_id):
@@ -39,10 +47,12 @@ def upload_to_s3(message_data, message_id):
             ContentType='application/json'
         )
 
+        S3_UPLOADS.inc()
         print(f"✓ Uploaded message {message_id} to s3://{S3_BUCKET_NAME}/{s3_key}")
         return True
 
     except ClientError as e:
+        S3_UPLOAD_ERRORS.inc()
         print(f"✗ Failed to upload message {message_id} to S3: {e}")
         return False
 
@@ -75,6 +85,7 @@ def process_message(message):
             ReceiptHandle=receipt_handle
         )
 
+        MESSAGES_PROCESSED.inc()
         print(f"✓ Deleted message {message_id} from queue")
         return True
 
@@ -98,10 +109,13 @@ def poll_sqs():
 
         messages = response.get('Messages', [])
 
+        POLLS_TOTAL.inc()
+
         if not messages:
             print("○ No messages in queue")
             return 0
 
+        MESSAGES_RECEIVED.inc(len(messages))
         print(f"● Received {len(messages)} message(s) from queue...")
 
         # Process each message
@@ -136,6 +150,13 @@ def main():
 
     # Main polling loop
     print("\n🚀 Starting message consumer...\n")
+
+    # Start Prometheus metrics server
+    try:
+        start_http_server(8000)
+        print("Prometheus metrics available on :8000/metrics")
+    except Exception:
+        print("Failed to start Prometheus metrics server")
 
     while True:
         try:
