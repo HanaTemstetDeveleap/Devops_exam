@@ -183,6 +183,23 @@ resource "aws_vpc_endpoint" "ecr_dkr" {
   }
 }
 
+# CloudWatch Logs Endpoint - For container logs
+resource "aws_vpc_endpoint" "logs" {
+  vpc_id              = aws_vpc.main.id
+  service_name        = "com.amazonaws.${var.aws_region}.logs"
+  vpc_endpoint_type   = "Interface"
+  private_dns_enabled = true
+
+  subnet_ids = aws_subnet.private[*].id
+
+  security_group_ids = [aws_security_group.vpc_endpoints.id]
+
+  tags = {
+    Name        = "${var.project_name}-logs-endpoint"
+    Description = "Private connection to CloudWatch Logs - no internet required"
+  }
+}
+
 # =============================================================================
 # Security Groups
 # =============================================================================
