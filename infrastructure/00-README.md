@@ -52,7 +52,7 @@ Complete Infrastructure as Code implementation using Terraform for a production-
 | **Prometheus** | Metrics collection | Private subnet, Cloud Map discovery |
 | **Grafana** | Metrics visualization | Public subnet for reviewer access |
 | **Cloud Map** | Service discovery | DNS-based discovery (*.local) |
-| **VPC Endpoints** | Private AWS API access | No NAT Gateway, 6 endpoints total |
+| **VPC Endpoints** | Private AWS API access | 6 endpoints (S3 Gateway + 5 Interface) |
 
 ---
 
@@ -419,11 +419,10 @@ This infrastructure implements **defense-in-depth** security:
 - Service 1 SG: Port 8080 from ALB SG only
 - Service 2 SG: No inbound, outbound to AWS services only
 
-✅ **VPC Endpoints**: Private connections to AWS services (S3, SQS, ECR, SSM)
-- **No NAT Gateway needed** - all AWS traffic via private VPC endpoints
+✅ **VPC Endpoints**: Private connections to AWS services (S3, SQS, ECR, SSM, CloudWatch Logs)
+- All AWS traffic via private VPC endpoints
 - No traffic traverses public internet
-- Significant cost savings ($32/month) vs NAT Gateway approach
-- Improved security posture (no internet gateway route for private subnets)
+- Enhanced security and cost optimization
 
 ### 2. Secrets Management
 
@@ -492,16 +491,15 @@ This infrastructure implements **defense-in-depth** security:
 - Used for ALB only
 
 **Private Subnets**:
-- **No NAT Gateway** - all AWS service access via VPC endpoints
-- No direct internet access (maximum security)
-- Cost optimization: Saves ~$32/month by using VPC endpoints instead of NAT
+- No direct internet access (all AWS service access via VPC endpoints)
+- Maximum security and cost optimization
 
 ### VPC Endpoints
 
 | Endpoint | Type | Purpose | Cost |
 |----------|------|---------|------|
 | **S3** | Gateway | S3 access from private subnets | Free |
-| **SQS** | Interface | SQS access without NAT | $7/month |
+| **SQS** | Interface | SQS access from private subnets | $7/month |
 | **ECR API** | Interface | Pull image manifests | $7/month |
 | **ECR DKR** | Interface | Pull Docker layers | $7/month |
 | **SSM** | Interface | Retrieve SSM parameters | $7/month |
@@ -516,13 +514,13 @@ This infrastructure implements **defense-in-depth** security:
 
 ## Cost Breakdown
 
-### Monthly Cost Estimate (Free Tier)
+### Monthly Cost Estimate 
 
 | Service | Specs | Monthly Cost | Free Tier |
 |---------|-------|--------------|-----------|
 | **ECS Fargate** | 4 tasks × 0.25 vCPU × 0.5 GB RAM | $0-8 | First 20 GB-hrs/month free |
 | **ALB** | Standard, minimal traffic | $16 | None |
-| **VPC Endpoints** | 5 interface endpoints | $35 | **No NAT Gateway!** |
+| **VPC Endpoints** | 5 interface endpoints | $35 |
 | **S3** | <5 GB storage, <20k requests | $0 | 5 GB, 20k GET, 2k PUT free |
 | **SQS** | <1M requests/month | $0 | 1M requests free |
 | **ECR** | <500 MB storage | $0 | 500 MB free |
@@ -532,7 +530,6 @@ This infrastructure implements **defense-in-depth** security:
 
 **Breakdown**:
 - **Mandatory**: ALB ($16) + VPC Endpoints ($35) = $51/month
-- **NAT Gateway**: $0 (not used - VPC endpoints instead!)
 - **Negligible**: ECS, S3, SQS, ECR, CloudWatch (covered by free tier)
 
 **Architecture Highlights**:
@@ -540,13 +537,6 @@ This infrastructure implements **defense-in-depth** security:
 - ✅ **Better Security**: No internet gateway route for private subnets
 - ✅ **Lower Latency**: Direct private connections to AWS services
 
-### Cost Optimization Tips
-
-1. ✅ **Already Optimized**: No NAT Gateway (saves $32/month vs typical architectures)
-2. **Delete ALB when not testing**: Destroy/recreate for demos (saves $16/month when idle)
-3. **Reduce CloudWatch retention**: Change from 7 days to 1 day
-4. **Disable Container Insights**: Set `containerInsights = "disabled"` in `10-ecs.tf`
-5. **Stop ECS services**: Scale `desired_count` to 0 when not actively testing
 
 ---
 
