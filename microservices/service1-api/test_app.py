@@ -7,11 +7,11 @@ import pytest
 import json
 import os
 from unittest.mock import patch, MagicMock
-from moto import mock_ssm, mock_sqs
+from moto import mock_aws
 import boto3
 
 # Import Flask app
-from app import app, validate_payload, validate_token, send_to_sqs, get_api_token
+from app import app, validate_payload
 
 
 # Test Fixtures
@@ -85,11 +85,11 @@ class TestPayloadValidation:
         assert "email_content" in error
 
 
-# Unit Tests - Token Validation
+# Unit Tests - Token Validation with AWS Mocking
+@mock_aws
 class TestTokenValidation:
     """Test token validation against SSM"""
 
-    @mock_ssm
     def test_valid_token(self):
         """Test validation succeeds with correct token"""
         # Setup mock SSM
@@ -100,16 +100,16 @@ class TestTokenValidation:
             Type='SecureString'
         )
 
-        # Clear cache
-        import app as app_module
-        app_module.api_token_cache = None
+        # Patch the app's ssm_client
+        with patch('app.ssm_client', ssm):
+            import app as app_module
+            app_module.api_token_cache = None
 
-        # Test validation
-        is_valid, error = validate_token('test-secret-token-12345')
-        assert is_valid is True
-        assert error is None
+            from app import validate_token
+            is_valid, error = validate_token('test-secret-token-12345')
+            assert is_valid is True
+            assert error is None
 
-    @mock_ssm
     def test_invalid_token(self):
         """Test validation fails with incorrect token"""
         # Setup mock SSM
@@ -120,16 +120,16 @@ class TestTokenValidation:
             Type='SecureString'
         )
 
-        # Clear cache
-        import app as app_module
-        app_module.api_token_cache = None
+        # Patch the app's ssm_client
+        with patch('app.ssm_client', ssm):
+            import app as app_module
+            app_module.api_token_cache = None
 
-        # Test validation
-        is_valid, error = validate_token('wrong-token')
-        assert is_valid is False
-        assert "Invalid token" in error
+            from app import validate_token
+            is_valid, error = validate_token('wrong-token')
+            assert is_valid is False
+            assert "Invalid token" in error
 
-    @mock_ssm
     def test_token_caching(self):
         """Test that token is cached after first retrieval"""
         # Setup mock SSM
@@ -140,34 +140,33 @@ class TestTokenValidation:
             Type='SecureString'
         )
 
-        # Clear cache
-        import app as app_module
-        app_module.api_token_cache = None
+        # Patch the app's ssm_client
+        with patch('app.ssm_client', ssm):
+            import app as app_module
+            app_module.api_token_cache = None
 
-        # First call - should retrieve from SSM
-        token1 = get_api_token()
-        assert token1 == 'cached-token'
+            from app import get_api_token
+            # First call - should retrieve from SSM
+            token1 = get_api_token()
+            assert token1 == 'cached-token'
 
-        # Second call - should use cache
-        token2 = get_api_token()
-        assert token2 == 'cached-token'
-        assert app_module.api_token_cache == 'cached-token'
+            # Second call - should use cache
+            token2 = get_api_token()
+            assert token2 == 'cached-token'
+            assert app_module.api_token_cache == 'cached-token'
 
 
 # Unit Tests - SQS Integration
+@mock_aws
 class TestSQSIntegration:
     """Test SQS message sending"""
 
-    @mock_sqs
     def test_send_to_sqs_success(self):
         """Test successful message send to SQS"""
         # Setup mock SQS
         sqs = boto3.client('sqs', region_name='us-east-1')
         queue = sqs.create_queue(QueueName='test-queue')
         queue_url = queue['QueueUrl']
-
-        # Set environment variable
-        os.environ['SQS_QUEUE_URL'] = queue_url
 
         # Test data
         test_data = {
@@ -177,21 +176,25 @@ class TestSQSIntegration:
             "email_content": "Test content"
         }
 
-        # Send message
-        success, message_id = send_to_sqs(test_data)
-        assert success is True
-        assert message_id is not None
+        # Patch the app's sqs_client
+        with patch('app.sqs_client', sqs):
+            with patch('app.SQS_QUEUE_URL', queue_url):
+                from app import send_to_sqs
+                success, message_id = send_to_sqs(test_data)
+                assert success is True
+                assert message_id is not None
 
-        # Verify message in queue
-        messages = sqs.receive_message(QueueUrl=queue_url)
-        assert 'Messages' in messages
-        assert len(messages['Messages']) == 1
+                # Verify message in queue
+                messages = sqs.receive_message(QueueUrl=queue_url)
+                assert 'Messages' in messages
+                assert len(messages['Messages']) == 1
 
-        body = json.loads(messages['Messages'][0]['Body'])
-        assert body == test_data
+                body = json.loads(messages['Messages'][0]['Body'])
+                assert body == test_data
 
 
 # Integration Tests - API Endpoints
+@mock_aws
 class TestAPIEndpoints:
     """Test Flask API endpoints"""
 
@@ -209,8 +212,6 @@ class TestAPIEndpoints:
         data = json.loads(response.data)
         assert 'Content-Type must be application/json' in data['error']
 
-    @mock_ssm
-    @mock_sqs
     def test_message_endpoint_success(self, client, valid_payload):
         """Test successful message processing"""
         # Setup mock SSM
@@ -225,25 +226,26 @@ class TestAPIEndpoints:
         sqs = boto3.client('sqs', region_name='us-east-1')
         queue = sqs.create_queue(QueueName='test-queue')
         queue_url = queue['QueueUrl']
-        os.environ['SQS_QUEUE_URL'] = queue_url
 
-        # Clear cache
-        import app as app_module
-        app_module.api_token_cache = None
+        # Patch both clients
+        with patch('app.ssm_client', ssm):
+            with patch('app.sqs_client', sqs):
+                with patch('app.SQS_QUEUE_URL', queue_url):
+                    import app as app_module
+                    app_module.api_token_cache = None
 
-        # Send request
-        response = client.post(
-            '/api/message',
-            data=json.dumps(valid_payload),
-            content_type='application/json'
-        )
+                    # Send request
+                    response = client.post(
+                        '/api/message',
+                        data=json.dumps(valid_payload),
+                        content_type='application/json'
+                    )
 
-        assert response.status_code == 200
-        data = json.loads(response.data)
-        assert data['status'] == 'success'
-        assert 'message_id' in data
+                    assert response.status_code == 200
+                    data = json.loads(response.data)
+                    assert data['status'] == 'success'
+                    assert 'message_id' in data
 
-    @mock_ssm
     def test_message_endpoint_invalid_token(self, client, valid_payload):
         """Test endpoint rejects invalid token"""
         # Setup mock SSM with different token
@@ -254,21 +256,22 @@ class TestAPIEndpoints:
             Type='SecureString'
         )
 
-        # Clear cache
-        import app as app_module
-        app_module.api_token_cache = None
+        # Patch ssm_client
+        with patch('app.ssm_client', ssm):
+            import app as app_module
+            app_module.api_token_cache = None
 
-        # Send request with wrong token
-        valid_payload['token'] = 'wrong-token'
-        response = client.post(
-            '/api/message',
-            data=json.dumps(valid_payload),
-            content_type='application/json'
-        )
+            # Send request with wrong token
+            valid_payload['token'] = 'wrong-token'
+            response = client.post(
+                '/api/message',
+                data=json.dumps(valid_payload),
+                content_type='application/json'
+            )
 
-        assert response.status_code == 401
-        data = json.loads(response.data)
-        assert 'Invalid token' in data['error']
+            assert response.status_code == 401
+            data = json.loads(response.data)
+            assert 'Invalid token' in data['error']
 
     def test_message_endpoint_missing_field(self, client, valid_payload):
         """Test endpoint rejects payload with missing fields"""
