@@ -9,6 +9,7 @@ Structure
 Key docs
 - Infrastructure README: [infrastructure/00-README.md](infrastructure/00-README.md#L1)
 - Microservices README: [microservices/README.md](microservices/README.md#L1)
+ - Workflows overview: [.github/workflows/README.md](.github/workflows/README.md#L1)
 
 Quick Start (all steps minimal)
 1. Deploy infra (creates ALB, S3, SQS, ECR, ECS):
