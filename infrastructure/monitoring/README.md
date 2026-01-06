@@ -94,6 +94,23 @@ Available at: `http://service2.local:8000/metrics`
 | `service2_s3_uploads_total` | Counter | Successful S3 uploads |
 | `service2_s3_upload_errors_total` | Counter | Failed S3 upload attempts |
 
+### CI/CD Monitoring (CloudWatch)
+
+The CI/CD monitoring dashboard displays deployment activity and ECS service health using CloudWatch data:
+
+**ECS Metrics** (from CloudWatch Container Insights):
+- `RunningTaskCount` - Number of currently running tasks per service
+- `DesiredTaskCount` - Expected number of tasks (should match RunningTaskCount)
+
+**CloudWatch Logs** (from ECS task logs):
+- Service 1 application logs from `/ecs/devops-exam/service1`
+- Service 2 application logs from `/ecs/devops-exam/service2`
+- Deployment events (task starts, stops, deployments)
+
+**GitHub Actions Logs**:
+- GitHub Actions workflow logs are viewable via CloudWatch Logs Insights
+- Logs show CI/CD pipeline execution, build steps, and deployment results
+
 ## Deployment Instructions
 
 ### 1. Build and Push Prometheus Image
@@ -147,10 +164,23 @@ aws ec2 describe-network-interfaces --network-interface-ids <ENI_ID> | jq '.Netw
    - URL: `http://prometheus.local:9090`
    - Click: Save & Test
 
-5. Import dashboard:
+5. Add CloudWatch data source (for CI/CD monitoring):
+   - Go to: Configuration → Data Sources → Add data source
+   - Select: CloudWatch
+   - Authentication Provider: `AWS SDK Default` (uses IAM role)
+   - Default Region: `us-east-1`
+   - Click: Save & Test
+
+6. Import microservices dashboard:
    - Go to: Dashboards → Import
    - Upload the JSON file from: `grafana/dashboards/microservices-metrics.json`
    - Select Prometheus data source
+   - Click: Import
+
+7. Import CI/CD monitoring dashboard:
+   - Go to: Dashboards → Import
+   - Upload the JSON file from: `grafana/dashboards/ci-cd-monitoring.json`
+   - Select CloudWatch data source
    - Click: Import
 
 ### 4. Verify Metrics Collection

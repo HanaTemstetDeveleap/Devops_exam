@@ -105,6 +105,11 @@ resource "aws_ecs_service" "prometheus" {
     assign_public_ip = false
   }
 
+  # Service Discovery - Register with Cloud Map
+  service_registries {
+    registry_arn = aws_service_discovery_service.prometheus.arn
+  }
+
   tags = {
     Name = "${var.project_name}-prometheus-svc"
   }

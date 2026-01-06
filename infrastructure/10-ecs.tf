@@ -7,7 +7,8 @@ resource "aws_ecs_cluster" "main" {
 
   setting {
     name  = "containerInsights"
-    value = "disabled" # Disable to save costs (not in free tier)
+    value = "enabled" # Enable for CI/CD monitoring dashboard (can set to "disabled" to save costs)
+    # value = "disabled" # Disable to save costs (not in free tier)
   }
 
   tags = {
@@ -75,6 +76,30 @@ resource "aws_service_discovery_service" "service2" {
 
   tags = {
     Name = "${var.project_name}-service2-discovery"
+  }
+}
+
+# Service Discovery Service for Prometheus
+resource "aws_service_discovery_service" "prometheus" {
+  name = "prometheus"
+
+  dns_config {
+    namespace_id = aws_service_discovery_private_dns_namespace.main.id
+
+    dns_records {
+      ttl  = 10
+      type = "A"
+    }
+
+    routing_policy = "MULTIVALUE"
+  }
+
+  health_check_custom_config {
+    failure_threshold = 1
+  }
+
+  tags = {
+    Name = "${var.project_name}-prometheus-discovery"
   }
 }
 
