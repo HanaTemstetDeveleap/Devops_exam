@@ -12,6 +12,11 @@ output "ecr_service2_repository_url" {
   value       = aws_ecr_repository.service2.repository_url
 }
 
+output "ecr_prometheus_repository_url" {
+  description = "URL of ECR repository for Prometheus (Custom image with scrape config)"
+  value       = aws_ecr_repository.prometheus.repository_url
+}
+
 # =============================================================================
 # S3 Outputs - Message storage
 # =============================================================================
@@ -99,4 +104,35 @@ output "ecs_service1_name" {
 output "ecs_service2_name" {
   description = "Name of Service 2 ECS service"
   value       = aws_ecs_service.service2.name
+}
+
+# =============================================================================
+# Monitoring Outputs - Prometheus and Grafana access (for exam reviewers)
+# =============================================================================
+
+output "grafana_public_ip" {
+  description = "Public IP of Grafana - Access at http://<IP>:3000 (admin/admin)"
+  value       = "Check ECS console for Grafana task's public IP"
+}
+
+output "grafana_instructions" {
+  description = "Instructions to access Grafana dashboard"
+  value       = <<-EOT
+    1. Go to AWS ECS Console -> Clusters -> devops-exam-cluster
+    2. Find the task running 'devops-exam-grafana' service
+    3. Click on the task and find the Public IP
+    4. Access Grafana at: http://<PUBLIC_IP>:3000
+    5. Default credentials: admin / admin
+    6. Add Prometheus data source: http://prometheus.local:9090
+  EOT
+}
+
+output "prometheus_service_discovery" {
+  description = "Service discovery DNS names for monitoring"
+  value = {
+    namespace   = aws_service_discovery_private_dns_namespace.main.name
+    service1    = "service1.local:8080"
+    service2    = "service2.local:8000"
+    prometheus  = "prometheus accessible only within VPC"
+  }
 }

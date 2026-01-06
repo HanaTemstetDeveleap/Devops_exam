@@ -73,3 +73,40 @@ resource "aws_ecr_lifecycle_policy" "service2" {
     }]
   })
 }
+
+# =============================================================================
+# ECR Repository for Prometheus - Custom Monitoring Image
+# =============================================================================
+
+resource "aws_ecr_repository" "prometheus" {
+  name                 = "${var.project_name}-prometheus"
+  image_tag_mutability = "MUTABLE"
+
+  image_scanning_configuration {
+    scan_on_push = true
+  }
+
+  tags = {
+    Name        = "${var.project_name}-prometheus"
+    Description = "Custom Prometheus image with scrape configuration"
+  }
+}
+
+resource "aws_ecr_lifecycle_policy" "prometheus" {
+  repository = aws_ecr_repository.prometheus.name
+
+  policy = jsonencode({
+    rules = [{
+      rulePriority = 1
+      description  = "Keep last 3 images only"
+      selection = {
+        tagStatus   = "any"
+        countType   = "imageCountMoreThan"
+        countNumber = 3
+      }
+      action = {
+        type = "expire"
+      }
+    }]
+  })
+}

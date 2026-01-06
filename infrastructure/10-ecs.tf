@@ -17,6 +17,68 @@ resource "aws_ecs_cluster" "main" {
 }
 
 # =============================================================================
+# AWS Cloud Map - Service Discovery Namespace
+# =============================================================================
+
+resource "aws_service_discovery_private_dns_namespace" "main" {
+  name        = "local"
+  description = "Private DNS namespace for ECS service discovery"
+  vpc         = aws_vpc.main.id
+
+  tags = {
+    Name = "${var.project_name}-service-discovery"
+  }
+}
+
+# Service Discovery Service for Service 1
+resource "aws_service_discovery_service" "service1" {
+  name = "service1"
+
+  dns_config {
+    namespace_id = aws_service_discovery_private_dns_namespace.main.id
+
+    dns_records {
+      ttl  = 10
+      type = "A"
+    }
+
+    routing_policy = "MULTIVALUE"
+  }
+
+  health_check_custom_config {
+    failure_threshold = 1
+  }
+
+  tags = {
+    Name = "${var.project_name}-service1-discovery"
+  }
+}
+
+# Service Discovery Service for Service 2
+resource "aws_service_discovery_service" "service2" {
+  name = "service2"
+
+  dns_config {
+    namespace_id = aws_service_discovery_private_dns_namespace.main.id
+
+    dns_records {
+      ttl  = 10
+      type = "A"
+    }
+
+    routing_policy = "MULTIVALUE"
+  }
+
+  health_check_custom_config {
+    failure_threshold = 1
+  }
+
+  tags = {
+    Name = "${var.project_name}-service2-discovery"
+  }
+}
+
+# =============================================================================
 # CloudWatch Log Groups - For container logs
 # =============================================================================
 
@@ -174,6 +236,11 @@ resource "aws_ecs_service" "service1" {
     container_port   = 8080
   }
 
+  # Service Discovery - Register with Cloud Map
+  service_registries {
+    registry_arn = aws_service_discovery_service.service1.arn
+  }
+
   # Wait for ALB to be ready before creating service
   depends_on = [aws_lb_listener.http]
 
@@ -199,6 +266,11 @@ resource "aws_ecs_service" "service2" {
     subnets          = aws_subnet.private[*].id
     security_groups  = [aws_security_group.service2.id]
     assign_public_ip = false
+  }
+
+  # Service Discovery - Register with Cloud Map
+  service_registries {
+    registry_arn = aws_service_discovery_service.service2.arn
   }
 
   tags = {

@@ -306,6 +306,18 @@ resource "aws_security_group" "service1" {
   }
 }
 
+# Allow monitoring (Prometheus) to scrape service1 metrics on port 8080
+# This rule references `aws_security_group.monitoring` defined in the monitoring module/file below.
+resource "aws_security_group_rule" "service1_allow_monitoring" {
+  type              = "ingress"
+  from_port         = 8080
+  to_port           = 8080
+  protocol          = "tcp"
+  security_group_id = aws_security_group.service1.id
+  source_security_group_id = aws_security_group.monitoring.id
+  description = "Allow Prometheus monitoring SG to scrape service1"
+}
+
 # =============================================================================
 # ECS Service 2 Security Group (SQS Consumer)
 # =============================================================================
@@ -315,8 +327,9 @@ resource "aws_security_group" "service2" {
   description = "Security group for Service 2 (SQS Consumer)"
   vpc_id      = aws_vpc.main.id
 
-  # No ingress - service2 doesn't accept incoming connections
+  # No ingress for application traffic - service2 doesn't accept incoming connections
   # It only polls SQS and writes to S3
+  # But we need to allow Prometheus to scrape metrics on port 8000
 
   # Allow all outbound (for VPC endpoints)
   egress {
@@ -329,6 +342,17 @@ resource "aws_security_group" "service2" {
 
   tags = {
     Name        = "${var.project_name}-service2-sg"
-    Description = "No ingress - only outbound for SQS and S3"
+    Description = "Only outbound for SQS and S3, plus metrics scraping"
   }
+}
+
+# Allow monitoring (Prometheus) to scrape service2 metrics on port 8000
+resource "aws_security_group_rule" "service2_allow_monitoring" {
+  type              = "ingress"
+  from_port         = 8000
+  to_port           = 8000
+  protocol          = "tcp"
+  security_group_id = aws_security_group.service2.id
+  source_security_group_id = aws_security_group.monitoring.id
+  description = "Allow Prometheus monitoring SG to scrape service2"
 }

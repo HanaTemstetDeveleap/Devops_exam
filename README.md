@@ -84,7 +84,7 @@ Notes & grading checklist
 - The repo includes Terraform IaC for required AWS resources (SQS, S3, ALB, ECS).
 - CI workflows build images and push to ECR; CD workflows deploy to ECS.
 - Tests exist (unit + E2E). E2E uses real AWS resources — avoid running on every CI build.
-- Bonus: monitoring/alerts (if implemented) are documented in `.github/workflows/README.md` or respective README files.
+- **Bonus #2 Implemented**: Monitoring with Prometheus + Grafana. See [infrastructure/monitoring/README.md](infrastructure/monitoring/README.md) for details.
 
 If you want, I can produce a single checklist for the reviewer matching the task file.
 
@@ -113,6 +113,53 @@ cd ../microservices
 chmod +x e2e_test/run_e2e.sh
 ./e2e_test/run_e2e.sh
 ```
+
+## Monitoring (Bonus #2) 📊
+
+The project includes **Prometheus + Grafana** monitoring for both microservices and CI/CD pipelines.
+
+### Quick Access
+
+After deploying the infrastructure:
+
+1. **Get Grafana Public IP**:
+```bash
+# Get Grafana task details
+aws ecs list-tasks --cluster devops-exam-cluster --service-name devops-exam-grafana --query 'taskArns[0]' --output text
+
+# Get public IP from task
+aws ecs describe-tasks --cluster devops-exam-cluster --tasks <TASK_ARN> --query 'tasks[0].attachments[0].details[?name==`networkInterfaceId`].value' --output text | xargs -I {} aws ec2 describe-network-interfaces --network-interface-ids {} --query 'NetworkInterfaces[0].Association.PublicIp' --output text
+```
+
+2. **Access Grafana**: `http://<PUBLIC_IP>:3000`
+   - Username: `admin`
+   - Password: `admin`
+
+3. **Import Dashboard**:
+   - Go to: **Dashboards → Import**
+   - Upload: `infrastructure/monitoring/grafana/dashboards/microservices-metrics.json`
+   - Select Prometheus data source
+   - Click: **Import**
+
+### What's Monitored
+
+**Service 1 (REST API)**:
+- Request rate & latency (p95)
+- SQS messages sent
+- Error rates
+- Token validation failures
+
+**Service 2 (Consumer)**:
+- SQS polling activity
+- Messages processed
+- S3 uploads success/failures
+- Processing errors
+
+**Architecture**: Prometheus runs in private subnet, scrapes metrics via AWS Cloud Map service discovery (`service1.local:8080`, `service2.local:8000`). Grafana runs in public subnet for reviewer access.
+
+📖 **Full documentation**: [infrastructure/monitoring/README.md](infrastructure/monitoring/README.md)
+
+---
 
 Notes
 - E2E tests use real AWS resources and incur small costs — do not run on every CI build. Run them manually or in a pre-deploy pipeline.

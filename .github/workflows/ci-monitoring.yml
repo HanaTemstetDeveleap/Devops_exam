@@ -1,0 +1,76 @@
+name: CI - Monitoring (Prometheus)
+
+# Trigger on changes to monitoring configuration or manual dispatch
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - 'infrastructure/monitoring/prometheus/**'
+      - '.github/workflows/ci-monitoring.yml'
+  pull_request:
+    paths:
+      - 'infrastructure/monitoring/prometheus/**'
+  workflow_dispatch:  # Allow manual trigger
+
+env:
+  AWS_REGION: us-east-1
+  ECR_REPOSITORY: devops-exam-prometheus
+
+jobs:
+  build-and-push-prometheus:
+    name: Build and Push Prometheus Image
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Login to Amazon ECR
+        id: login-ecr
+        uses: aws-actions/amazon-ecr-login@v2
+
+      - name: Extract metadata for Docker
+        id: meta
+        run: |
+          echo "sha_short=$(git rev-parse --short HEAD)" >> $GITHUB_OUTPUT
+          echo "timestamp=$(date +%Y%m%d-%H%M%S)" >> $GITHUB_OUTPUT
+
+      - name: Build Prometheus Docker image
+        working-directory: infrastructure/monitoring/prometheus
+        run: |
+          docker build \
+            -t ${{ steps.login-ecr.outputs.registry }}/${{ env.ECR_REPOSITORY }}:${{ steps.meta.outputs.sha_short }} \
+            -t ${{ steps.login-ecr.outputs.registry }}/${{ env.ECR_REPOSITORY }}:latest \
+            .
+
+      - name: Push Prometheus image to ECR
+        run: |
+          docker push ${{ steps.login-ecr.outputs.registry }}/${{ env.ECR_REPOSITORY }}:${{ steps.meta.outputs.sha_short }}
+          docker push ${{ steps.login-ecr.outputs.registry }}/${{ env.ECR_REPOSITORY }}:latest
+
+      - name: Image information
+        run: |
+          echo "### Prometheus Image Built Successfully! 🎉" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "**Image Tags:**" >> $GITHUB_STEP_SUMMARY
+          echo "- \`${{ steps.login-ecr.outputs.registry }}/${{ env.ECR_REPOSITORY }}:${{ steps.meta.outputs.sha_short }}\`" >> $GITHUB_STEP_SUMMARY
+          echo "- \`${{ steps.login-ecr.outputs.registry }}/${{ env.ECR_REPOSITORY }}:latest\`" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "**Next Steps:**" >> $GITHUB_STEP_SUMMARY
+          echo "1. ECS will automatically use the \`:latest\` tag" >> $GITHUB_STEP_SUMMARY
+          echo "2. Force new deployment: \`aws ecs update-service --cluster devops-exam-cluster --service devops-exam-prometheus --force-new-deployment\`" >> $GITHUB_STEP_SUMMARY
+
+      - name: Trigger Prometheus deployment
+        if: github.ref == 'refs/heads/main'
+        run: |
+          echo "Triggering deployment workflow..."
+          # Optionally trigger CD workflow here
+          # For now, we'll do manual deployment or auto-update ECS task definition
