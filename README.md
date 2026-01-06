@@ -325,7 +325,6 @@ cd infrastructure
 terraform destroy
 ```
 
-**Warning**: This permanently deletes all data in S3, messages in SQS, and all infrastructure.
 
 ---
 
@@ -363,17 +362,3 @@ terraform destroy
     └── cd-service2.yml
 ```
 
----
-
-## Notes
-
-- **Free Tier Usage**: This project is designed to run on AWS Free Tier where possible (t3.micro instances, minimal usage)
-- **Estimated Cost**: ~$55-60/month (primarily ALB $16 + NAT Gateway $32)
-- **Security Focus**: Architecture prioritizes security best practices (private subnets, VPC endpoints, least privilege IAM, secrets management)
-- **Production-Ready**: While this is an exam project, it follows production best practices suitable for high-security environments
-
----
-
-**Repository**: [Add your GitHub repo URL here]
-
-**For questions or issues**: Open an issue in the repository

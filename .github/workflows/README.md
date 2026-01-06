@@ -1,8 +1,20 @@
 # CI/CD with GitHub Actions
 
-This directory contains GitHub Actions workflows for automated CI/CD pipelines for both microservices.
+Automated CI/CD pipelines for building, testing, and deploying microservices to AWS ECS using GitHub Actions.
 
-## Workflows
+---
+
+## Table of Contents
+- [Workflows Overview](#workflows-overview)
+- [Setup Instructions](#setup-instructions)
+- [Security Considerations](#security-considerations)
+- [Testing](#testing)
+- [Monitoring Workflows](#monitoring-workflows)
+- [Troubleshooting](#troubleshooting)
+
+---
+
+## Workflows Overview
 
 ### CI Workflows (Continuous Integration)
 
@@ -18,28 +30,104 @@ This directory contains GitHub Actions workflows for automated CI/CD pipelines f
 | `cd-service1.yml` | Automatically triggered by CI | Deploy Service 1 to ECS Fargate |
 | `cd-service2.yml` | Automatically triggered by CI | Deploy Service 2 to ECS Fargate |
 
+---
+
 ## Setup Instructions
 
 ### 1. Configure GitHub Secrets
 
-Add the following secrets to your repository (Settings → Secrets and variables → Actions):
+Add the following secrets to your repository (**Settings → Secrets and variables → Actions**):
 
-| Secret Name | Description |
-|-------------|-------------|
-| `AWS_ACCESS_KEY_ID` | AWS access key for GitHub Actions |
-| `AWS_SECRET_ACCESS_KEY` | AWS secret key for GitHub Actions |
+| Secret Name | Description | Required |
+|-------------|-------------|----------|
+| `AWS_ACCESS_KEY_ID` | AWS access key for GitHub Actions | ✅ |
+| `AWS_SECRET_ACCESS_KEY` | AWS secret key for GitHub Actions | ✅ |
+
+---
+
+## Security Considerations
+
+### Current Setup (Exam-Friendly)
+
+⚠️ **Simplified for exam purposes:**
+- Uses IAM user with AWS managed policies (`AmazonEC2ContainerRegistryPowerUser`, `AmazonECS_FullAccess`)
+- Credentials stored as GitHub Secrets
+- Suitable for learning and demonstration
+
+### Production Recommendations
+
+🔒 **For production environments:**
+
+1. **Use GitHub OIDC Provider** (no long-lived credentials):
+   ```hcl
+   # Terraform example
+   resource "aws_iam_openid_connect_provider" "github" {
+     url = "https://token.actions.githubusercontent.com"
+     client_id_list = ["sts.amazonaws.com"]
+     thumbprint_list = ["6938fd4d98bab03faadb97b34396831e3780aea1"]
+   }
+
+   resource "aws_iam_role" "github_actions" {
+     name = "github-actions-deployer"
+     assume_role_policy = jsonencode({
+       Version = "2012-10-17"
+       Statement = [{
+         Effect = "Allow"
+         Principal = { Federated = aws_iam_openid_connect_provider.github.arn }
+         Action = "sts:AssumeRoleWithWebIdentity"
+         Condition = {
+           StringEquals = {
+             "token.actions.githubusercontent.com:aud" = "sts.amazonaws.com"
+             "token.actions.githubusercontent.com:sub" = "repo:org/repo:ref:refs/heads/main"
+           }
+         }
+       }]
+     })
+   }
+   ```
+
+2. **Least Privilege IAM Policy** (specific permissions only):
+   ```json
+   {
+     "Version": "2012-10-17",
+     "Statement": [
+       {
+         "Effect": "Allow",
+         "Action": [
+           "ecr:GetAuthorizationToken",
+           "ecr:BatchCheckLayerAvailability",
+           "ecr:PutImage",
+           "ecr:InitiateLayerUpload",
+           "ecr:UploadLayerPart",
+           "ecr:CompleteLayerUpload"
+         ],
+         "Resource": "arn:aws:ecr:*:*:repository/devops-exam-*"
+       },
+       {
+         "Effect": "Allow",
+         "Action": [
+           "ecs:UpdateService",
+           "ecs:DescribeServices"
+         ],
+         "Resource": "arn:aws:ecs:*:*:service/devops-exam-cluster/*"
+       }
+     ]
+   }
+   ```
+
+3. **Credential Rotation**: If using IAM users, rotate access keys every 90 days
+
+4. **Audit Logging**: Enable CloudTrail for GitHub Actions API calls
+
+### Current Setup Instructions (Exam)
 
 **How to create AWS credentials:**
-
-**NOTE:**
-**To keep the setup simple, managed AWS policies were attached to the GitHub Actions IAM user.**
-**In production, a dedicated IAM role with minimal, scoped permissions (least privilege) and GitHub OIDC authentication should be used instead.**
 
 ```bash
 # Create IAM user for GitHub Actions
 aws iam create-user --user-name github-actions-deployer
 
-# Attach required policies
+# Attach required policies (simplified for exam)
 aws iam attach-user-policy \
   --user-name github-actions-deployer \
   --policy-arn arn:aws:iam::aws:policy/AmazonEC2ContainerRegistryPowerUser
@@ -50,6 +138,7 @@ aws iam attach-user-policy \
 
 # Create access keys
 aws iam create-access-key --user-name github-actions-deployer
+# Copy the AccessKeyId and SecretAccessKey to GitHub Secrets
 ```
 
 ### 2. How It Works

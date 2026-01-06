@@ -1,21 +1,103 @@
-# Microservices
+# Microservices - Python Services for Message Processing
 
-This directory contains two Python microservices that work together to process and store messages.
+Two containerized Python microservices implementing asynchronous message processing pipeline with security best practices.
 
-## Services
+---
+
+## Table of Contents
+- [Services Overview](#services-overview)
+- [Security Features](#security-features)
+- [Testing](#testing)
+- [Local Development](#local-development)
+- [CI/CD Integration](#cicd-integration)
+
+---
+
+## Services Overview
 
 ### Service 1: REST API (`service1-api/`)
-- **Technology**: Flask REST API
-- **Purpose**: Receives HTTP POST requests, validates token and payload, sends messages to SQS
-- **Port**: 8080
-- **Endpoints**:
-  - `GET /health` - Health check
-  - `POST /api/message` - Submit message for processing
+
+**Technology Stack**:
+- **Framework**: Flask 2.x
+- **Metrics**: Prometheus client for custom metrics
+- **AWS SDK**: boto3 for SQS and SSM
+
+**Purpose**: HTTP API endpoint that validates tokens and publishes messages to SQS
+
+**Port**: 8080
+
+**API Endpoints**:
+| Endpoint | Method | Description | Auth |
+|----------|--------|-------------|------|
+| `/health` | GET | Health check (ALB target health) | None |
+| `/api/message` | POST | Submit message for processing | Token required |
+| `/metrics` | GET | Prometheus metrics (internal only) | None |
+
+**Request Format**:
+```json
+{
+  "data": {
+    "email_subject": "string (required)",
+    "email_sender": "string (required)",
+    "email_timestream": "string (required)",
+    "email_content": "string (required)"
+  },
+  "token": "string (validated against SSM)"
+}
+```
+
+**Security Features**:
+- Token validation against AWS SSM Parameter Store
+- Token caching (in-memory, 5-minute TTL) to reduce SSM API calls
+- Payload validation (all 4 fields required)
+- IAM role-based authentication (no hardcoded credentials)
+
+---
 
 ### Service 2: SQS Consumer (`service2-consumer/`)
-- **Technology**: Python background service
-- **Purpose**: Polls SQS queue, processes messages, stores to S3 with date-based hierarchy
-- **Storage Pattern**: `messages/YYYY/MM/DD/<message-id>.json`
+
+**Technology Stack**:
+- **Framework**: Python 3.11 background worker
+- **Metrics**: Prometheus client for custom metrics
+- **AWS SDK**: boto3 for SQS and S3
+
+**Purpose**: Background worker that polls SQS and uploads messages to S3
+
+**Polling Interval**: Configurable via `POLL_INTERVAL` env var (default: 10 seconds)
+
+**Storage Pattern**: `messages/YYYY/MM/DD/<message-id>.json`
+- Year/Month/Day hierarchy for easy browsing
+- Message ID from SQS as filename
+- JSON format with metadata
+
+**Security Features**:
+- IAM role-based access (no hardcoded credentials)
+- Least privilege permissions (SQS receive/delete, S3 write only)
+- S3 encryption at rest (SSE-S3)
+- Message validation before upload
+
+---
+
+## Security Features
+
+Both services implement security best practices:
+
+### Service 1 Security
+- ✅ **No Hardcoded Tokens**: Token retrieved from AWS SSM Parameter Store at runtime
+- ✅ **Token Caching**: 5-minute TTL cache to reduce SSM API calls (performance + cost)
+- ✅ **Payload Validation**: All 4 email fields required before processing
+- ✅ **IAM Role Authentication**: Uses ECS task role, no access keys in code
+- ✅ **Private Subnet Deployment**: No direct internet access
+- ✅ **Input Sanitization**: Prevents injection attacks
+
+### Service 2 Security
+- ✅ **IAM Least Privilege**: Read/delete from SQS, write to S3 only
+- ✅ **S3 Encryption**: Uploads to SSE-S3 encrypted bucket
+- ✅ **Message Validation**: Validates message structure before S3 upload
+- ✅ **Private Subnet Deployment**: All AWS API calls via VPC endpoints
+- ✅ **Error Handling**: Failed messages logged, not lost
+
+---
 
 ## Testing
 

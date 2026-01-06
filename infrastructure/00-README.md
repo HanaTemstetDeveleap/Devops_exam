@@ -1,159 +1,207 @@
-# Infrastructure - AWS Microservices Platform
+# Infrastructure - Terraform IaC for AWS Microservices Platform
 
-### First deployment
+Complete Infrastructure as Code implementation using Terraform for a production-grade microservices platform on AWS.
 
-On the first `terraform apply`, ECR repositories are created but container images do not exist yet.
-Therefore, ECS services are created with `desired_count = 0`.
+---
 
-After CI builds and pushes the images to ECR, run the CD workflow and then set `desired_count = 1` and apply Terraform again.
+## Table of Contents
+- [Architecture Overview](#architecture-overview)
+- [File Organization](#file-organization)
+- [Prerequisites](#prerequisites)
+- [Deployment Guide](#deployment-guide)
+- [Testing](#testing)
+- [Security Features](#security-features)
+- [Network Architecture](#network-architecture)
+- [Cost Breakdown](#cost-breakdown)
+- [Troubleshooting](#troubleshooting)
 
-
-This directory contains Terraform Infrastructure as Code (IaC) for deploying a complete microservices platform on AWS.
+---
 
 ## Architecture Overview
-
-The infrastructure provisions two microservices that communicate asynchronously:
 
 ```
 ┌──────────────┐      ┌─────────────┐      ┌─────────────┐      ┌──────────────┐
 │   Internet   │─────▶│     ALB     │─────▶│  Service 1  │─────▶│  SQS Queue   │
 └──────────────┘      └─────────────┘      │  (REST API) │      └──────┬───────┘
                                             └─────────────┘             │
+                                                   ↓                    │
+                                            ┌─────────────┐             │
+                                            │  SSM Store  │             │
+                                            │  (Token)    │             │
+                                            └─────────────┘             │
                                                                         │
                       ┌──────────────┐      ┌─────────────┐            │
                       │  S3 Bucket   │◀─────│  Service 2  │◀───────────┘
-                      └──────────────┘      │ (Consumer)  │
-                                            └─────────────┘
+                      │ (Encrypted)  │      │ (Consumer)  │
+                      └──────────────┘      └─────────────┘
 ```
 
 ### Components
 
-- **Service 1 (REST API)**: Receives HTTP POST requests, validates tokens, sends messages to SQS
-- **Service 2 (SQS Consumer)**: Polls SQS, processes messages, saves them to S3
-- **Application Load Balancer (ALB)**: Public-facing entry point for Service 1
-- **SQS Queue**: Decouples services with reliable message passing
-- **S3 Bucket**: Persistent storage for processed messages
-- **VPC**: Isolated network with public and private subnets
-- **ECS Fargate**: Serverless container orchestration
+| Component | Purpose | Security Features |
+|-----------|---------|-------------------|
+| **VPC** | Isolated network (10.0.0.0/16) | Public & private subnets, security groups |
+| **ALB** | Load balancer for Service 1 | Public-facing, HTTP→Service 1 only |
+| **Service 1** | REST API with token validation | Private subnet, SSM token, payload validation |
+| **Service 2** | SQS consumer, S3 uploader | Private subnet, IAM least privilege |
+| **SQS** | Message queue with DLQ | Encrypted, 7-day retention |
+| **S3** | Message storage | SSE-S3 encryption, versioning |
+| **SSM** | Secure token storage | Encrypted at rest, IAM-based access |
+| **ECR** | Docker image repositories | Private, lifecycle policies |
+| **ECS Fargate** | Container orchestration | No EC2 management, auto-scaling ready |
+| **VPC Endpoints** | Private AWS API access | No NAT Gateway needed for some services |
+
+---
 
 ## File Organization
 
-Files are numbered in logical reading order based on dependencies:
+Files are numbered in **logical dependency order** for easy reading:
 
-| File | Description |
-|------|-------------|
-| `01-provider.tf` | AWS provider configuration and required Terraform version |
-| `02-variables.tf` | Input variables with descriptions and default values |
-| `03-vpc.tf` | VPC, subnets, NAT gateway, VPC endpoints, security groups |
-| `04-iam.tf` | IAM roles and policies for ECS tasks |
-| `05-ecr.tf` | Docker image repositories for both services |
-| `06-s3.tf` | S3 bucket for message storage with versioning |
-| `07-sqs.tf` | SQS queue with dead-letter queue (DLQ) |
-| `08-ssm.tf` | SSM Parameter Store for secure API token storage |
-| `09-alb.tf` | Application Load Balancer with target group |
-| `10-ecs.tf` | ECS cluster, task definitions, and services |
-| `11-outputs.tf` | Output values (URLs, ARNs, IDs) |
+| File | Description | Key Resources |
+|------|-------------|---------------|
+| [01-provider.tf](01-provider.tf) | AWS provider, Terraform version | Provider config, backend |
+| [02-variables.tf](02-variables.tf) | Input variables with defaults | Region, environment, tokens |
+| [03-vpc.tf](03-vpc.tf) | VPC, subnets, routing, security | VPC, subnets, NAT, VPC endpoints, security groups |
+| [04-iam.tf](04-iam.tf) | IAM roles and policies | ECS task roles, execution roles |
+| [05-ecr.tf](05-ecr.tf) | Docker registries | Service 1, Service 2, Prometheus repos |
+| [06-s3.tf](06-s3.tf) | S3 bucket for messages | Encryption, versioning, lifecycle |
+| [07-sqs.tf](07-sqs.tf) | SQS queue and DLQ | Main queue, dead letter queue |
+| [08-ssm.tf](08-ssm.tf) | Secure API token storage | Encrypted parameter |
+| [09-alb.tf](09-alb.tf) | Application Load Balancer | ALB, listener, target group |
+| [10-ecs.tf](10-ecs.tf) | ECS cluster, tasks, services | Cluster, task definitions, services |
+| [11-outputs.tf](11-outputs.tf) | Terraform outputs | URLs, ARNs, names for testing |
+| [12-monitoring.tf](12-monitoring.tf) | Prometheus + Grafana | Monitoring infrastructure |
+
+---
 
 ## Prerequisites
 
 ### Required Tools
 
-- **Terraform**: v1.0+ ([Install Guide](https://developer.hashicorp.com/terraform/downloads))
-- **AWS CLI**: v2.0+ ([Install Guide](https://docs.aws.amazon.com/cli/latest/userguide/getting-started-install.html))
-- **Docker**: v20.0+ ([Install Guide](https://docs.docker.com/get-docker/))
+| Tool | Version | Installation |
+|------|---------|--------------|
+| **Terraform** | v1.0+ | [Install Guide](https://developer.hashicorp.com/terraform/downloads) |
+| **AWS CLI** | v2.0+ | [Install Guide](https://docs.aws.amazon.com/cli/latest/userguide/getting-started-install.html) |
+| **Docker** | v20.0+ | [Install Guide](https://docs.docker.com/get-docker/) |
 
 ### AWS Account Setup
 
-1. **AWS Account**: Free Tier eligible account
-2. **AWS Credentials**: Configure credentials with required permissions
+1. **AWS Account**: Free Tier eligible recommended
+2. **AWS Credentials**: Configure with required permissions
    ```bash
    aws configure
+   # Enter: Access Key ID, Secret Access Key, Region (us-east-1), Output format (json)
    ```
-3. **Required IAM Permissions**:
-   - VPC, EC2, ECS, ECR, S3, SQS, SSM, IAM, CloudWatch Logs
+
+3. **Verify credentials**:
+   ```bash
+   aws sts get-caller-identity
+   # Should display your AWS account ID and user ARN
+   ```
+
+### Required IAM Permissions
+
+The AWS user/role needs permissions for:
+- VPC, EC2 (subnets, security groups, VPC endpoints)
+- ECS, ECR (clusters, services, repositories)
+- S3, SQS, SSM (buckets, queues, parameters)
+- IAM (roles, policies)
+- CloudWatch Logs, CloudWatch (logging, metrics)
+- Elastic Load Balancing (ALB, target groups)
+
+**Recommended**: Use `AdministratorAccess` for exam, or create custom policy with scoped permissions for production.
+
+---
 
 ## Deployment Guide
 
-### Step 1: Build and Push Docker Images
+### Important: First Deployment Note
 
-Before deploying infrastructure, build and push the microservice images to ECR:
+**ECS services start with `desired_count=0`** because Docker images don't exist in ECR yet.
 
-```bash
-# Navigate to project root
-cd ..
+After deploying infrastructure and pushing images (via CI or manually), you'll need to scale services to `desired_count=1`.
 
-# Build Service 1 (REST API)
-cd microservices/service1-api
-docker build -t devops-exam-service1:latest .
+---
 
-# Build Service 2 (SQS Consumer)
-cd ../service2-consumer
-docker build -t devops-exam-service2:latest .
-
-# Return to infrastructure directory
-cd ../../infrastructure
-```
-
-### Step 2: Initialize Terraform
+### Step 1: Initialize Terraform
 
 ```bash
+cd infrastructure
+
+# Initialize Terraform (downloads providers)
 terraform init
 ```
 
-This downloads required providers and initializes the backend.
+**Expected output**: "Terraform has been successfully initialized!"
 
-### Step 3: Review Variables
+---
 
-Check [02-variables.tf](02-variables.tf:1) for configurable parameters:
+### Step 2: Set Required Variables
 
-| Variable | Description | Default | Required |
-|----------|-------------|---------|----------|
-| `aws_region` | AWS region | `us-east-1` | No |
-| `environment` | Environment name | `dev` | No |
-| `project_name` | Project prefix | `devops-exam` | No |
-| `api_token` | API authentication token | - | **Yes** |
-| `vpc_cidr` | VPC CIDR block | `10.0.0.0/16` | No |
-| `availability_zones` | AZs for HA | `["us-east-1a", "us-east-1b"]` | No |
-
-### Step 4: Set API Token
-
-The `api_token` variable is **required** and has no default for security:
+The **`api_token`** variable is **required** (no default for security):
 
 ```bash
-# Option 1: Export as environment variable
-export TF_VAR_api_token='XXXXXXXXXXXXX'
+# Option 1: Environment variable (recommended)
+export TF_VAR_api_token='your-secure-token-here'
 
-# Option 2: Pass via command line
-terraform plan -var='api_token=XXXXXXXXXXXXX'
+# Option 2: Command line
+terraform apply -var='api_token=your-secure-token-here'
 
-# Option 3: Create terraform.tfvars (DO NOT COMMIT)
-echo 'api_token = "XXXXXXXXXXXXX"' > terraform.tfvars
+# Option 3: terraform.tfvars file (DO NOT COMMIT)
+echo 'api_token = "your-secure-token-here"' > terraform.tfvars
 ```
 
-**Security Note**: Never commit tokens to Git. The token is stored encrypted in SSM Parameter Store.
+**Security Note**: Never commit secrets to Git. Add `terraform.tfvars` to `.gitignore`.
 
-### Step 5: Review Deployment Plan
+---
+
+### Step 3: Review Infrastructure Plan
 
 ```bash
 terraform plan
 ```
 
-Review the resources to be created (~40-50 resources).
+**Review**:
+- Resources to create (~45-55 resources)
+- Estimated costs
+- No unexpected deletions/modifications
 
-### Step 6: Deploy Infrastructure
+---
+
+### Step 4: Deploy Infrastructure
 
 ```bash
 terraform apply
+
+# Review the plan, then type: yes
 ```
 
-Type `yes` when prompted. Deployment takes approximately 5-10 minutes.
+**Deployment time**: ~5-10 minutes
 
-### Step 7: Push Docker Images to ECR
+**What's created**:
+- VPC with 2 public + 2 private subnets
+- NAT Gateway for private subnet internet access
+- VPC endpoints for S3, SQS, ECR, SSM
+- Security groups for ALB and services
+- ECS cluster with Container Insights enabled
+- ECR repositories (empty, waiting for images)
+- S3 bucket with encryption
+- SQS queue with DLQ
+- SSM parameter with encrypted token
+- ALB with HTTP listener
+- ECS services with `desired_count=0`
 
-After infrastructure is deployed, get ECR repository URLs and push images:
+---
+
+### Step 5: Build and Push Docker Images
+
+**Option A - Automated (Recommended)**:
+Push code to GitHub → CI workflows automatically build and push to ECR
+
+**Option B - Manual**:
 
 ```bash
-# Get ECR URLs from Terraform outputs
+# Get ECR repository URLs from Terraform outputs
 ECR_SERVICE1=$(terraform output -raw ecr_service1_repository_url)
 ECR_SERVICE2=$(terraform output -raw ecr_service2_repository_url)
 
@@ -161,62 +209,105 @@ ECR_SERVICE2=$(terraform output -raw ecr_service2_repository_url)
 aws ecr get-login-password --region us-east-1 | \
   docker login --username AWS --password-stdin ${ECR_SERVICE1%%/*}
 
-# Tag and push Service 1
-docker tag devops-exam-service1:latest $ECR_SERVICE1:latest
+# Build and push Service 1
+cd ../microservices/service1-api
+docker build -t $ECR_SERVICE1:latest .
 docker push $ECR_SERVICE1:latest
 
-# Tag and push Service 2
-docker tag devops-exam-service2:latest $ECR_SERVICE2:latest
+# Build and push Service 2
+cd ../service2-consumer
+docker build -t $ECR_SERVICE2:latest .
 docker push $ECR_SERVICE2:latest
+
+# Return to infrastructure directory
+cd ../../infrastructure
 ```
 
-### Step 8: Update ECS Services
+---
 
-Force ECS services to pull the new images:
+### Step 6: Update ECS Services to Deploy Containers
+
+After images are in ECR, deploy them to ECS:
 
 ```bash
+# Update Service 1
 aws ecs update-service \
   --cluster devops-exam-cluster-dev \
   --service devops-exam-service1-dev \
-  --force-new-deployment \
-  --region us-east-1
+  --desired-count 1 \
+  --force-new-deployment
 
+# Update Service 2
 aws ecs update-service \
   --cluster devops-exam-cluster-dev \
   --service devops-exam-service2-dev \
-  --force-new-deployment \
-  --region us-east-1
+  --desired-count 1 \
+  --force-new-deployment
+
+# Wait for services to stabilize (takes ~2-3 minutes)
+aws ecs wait services-stable \
+  --cluster devops-exam-cluster-dev \
+  --services devops-exam-service1-dev devops-exam-service2-dev
 ```
 
-### Step 9: Verify Deployment
+**Alternative**: Update `desired_count` in `10-ecs.tf` from `0` to `1` and run `terraform apply` again.
+
+---
+
+### Step 7: Verify Deployment
 
 ```bash
 # Get ALB URL
 ALB_URL=$(terraform output -raw alb_dns_name)
 
-# Check health endpoint
+# Get API token from SSM
+API_TOKEN=$(aws ssm get-parameter \
+  --name /devops-exam/dev/api-token \
+  --with-decryption \
+  --query 'Parameter.Value' \
+  --output text)
+
+# Test health endpoint
 curl http://$ALB_URL/health
 
-# Expected output: {"status":"healthy"}
-```
+# Expected: {"status":"healthy"}
 
-## Testing the Platform
-
-### Test 1: Valid Request
-
-```bash
-ALB_URL=$(terraform output -raw alb_dns_name)
-
+# Test API with valid token
 curl -X POST "http://${ALB_URL}/api/message" \
   -H "Content-Type: application/json" \
   -d '{
     "data": {
       "email_subject": "Test Message",
       "email_sender": "test@example.com",
-      "email_timestream": "2026-01-05T12:00:00Z",
-      "email_content": "This is a test message"
+      "email_timestream": "1693561101",
+      "email_content": "Hello from deployment test"
     },
-    "token": "XXXXXXXXXXXXX"  # PUT RIGHT_TOKEN
+    "token": "'$API_TOKEN'"
+  }'
+
+# Expected: {"message": "Message sent to queue", "message_id": "...", "status": "success"}
+```
+
+---
+
+## Testing
+
+### Test 1: Valid Request (Success Flow)
+
+```bash
+ALB_URL=$(terraform output -raw alb_dns_name)
+API_TOKEN=$(aws ssm get-parameter --name /devops-exam/dev/api-token --with-decryption --query 'Parameter.Value' --output text)
+
+curl -X POST "http://${ALB_URL}/api/message" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "data": {
+      "email_subject": "Test Email",
+      "email_sender": "user@example.com",
+      "email_timestream": "1693561101",
+      "email_content": "This is a valid test message"
+    },
+    "token": "'$API_TOKEN'"
   }'
 ```
 
@@ -229,17 +320,19 @@ curl -X POST "http://${ALB_URL}/api/message" \
 }
 ```
 
-### Test 2: Invalid Token
+---
+
+### Test 2: Invalid Token (Security Test)
 
 ```bash
 curl -X POST "http://${ALB_URL}/api/message" \
   -H "Content-Type: application/json" \
   -d '{
     "data": {
-      "email_subject": "Test Message",
+      "email_subject": "Test",
       "email_sender": "test@example.com",
-      "email_timestream": "2026-01-05T12:00:00Z",
-      "email_content": "This should fail"
+      "email_timestream": "1693561101",
+      "email_content": "Should fail"
     },
     "token": "WRONG_TOKEN"
   }'
@@ -252,6 +345,8 @@ curl -X POST "http://${ALB_URL}/api/message" \
 }
 ```
 
+---
+
 ### Test 3: Verify Message in S3
 
 ```bash
@@ -262,42 +357,34 @@ BUCKET=$(terraform output -raw s3_bucket_name)
 aws s3 ls s3://$BUCKET/messages/$(date +%Y/%m/%d)/ --recursive
 
 # Download a specific message
-aws s3 cp s3://$BUCKET/messages/2026/01/05/<message_id>.json -
+aws s3 cp s3://$BUCKET/messages/$(date +%Y/%m/%d)/<message_id>.json - | jq .
 ```
 
-### Test 4: Check ECS Services
+**Expected**: JSON file with email data
+
+---
+
+### Test 4: Monitor ECS Services
 
 ```bash
 # View Service 1 status
 aws ecs describe-services \
   --cluster devops-exam-cluster-dev \
   --services devops-exam-service1-dev \
-  --query 'services[0].{Status:status,Running:runningCount,Desired:desiredCount}'
+  --query 'services[0].{Status:status,Running:runningCount,Desired:desiredCount,Events:events[:3]}'
 
 # View Service 2 status
 aws ecs describe-services \
   --cluster devops-exam-cluster-dev \
   --services devops-exam-service2-dev \
-  --query 'services[0].{Status:status,Running:runningCount,Desired:desiredCount}'
+  --query 'services[0].{Status:status,Running:runningCount,Desired:desiredCount,Events:events[:3]}'
 ```
 
-### Test 5: Monitor SQS Queue
+**Expected**: `Running = Desired = 1`, Status = ACTIVE
 
-```bash
-# Get queue metrics
-QUEUE_URL=$(terraform output -raw sqs_queue_url)
+---
 
-aws sqs get-queue-attributes \
-  --queue-url "$QUEUE_URL" \
-  --attribute-names All \
-  --query 'Attributes.{Available:ApproximateNumberOfMessages,InFlight:ApproximateNumberOfMessagesNotVisible}'
-```
-
-## Monitoring and Logs
-
-### CloudWatch Logs
-
-View logs for both services:
+### Test 5: Check CloudWatch Logs
 
 ```bash
 # Service 1 logs (REST API)
@@ -306,200 +393,332 @@ aws logs tail /ecs/devops-exam/service1 --follow
 # Service 2 logs (SQS Consumer)
 aws logs tail /ecs/devops-exam/service2 --follow
 
-# Filter logs for specific patterns
+# Filter for POST requests
 aws logs tail /ecs/devops-exam/service1 --since 10m --filter-pattern "POST"
 ```
 
-### ECS Task Health
+---
 
-```bash
-# List running tasks
-aws ecs list-tasks \
-  --cluster devops-exam-cluster-dev \
-  --service-name devops-exam-service1-dev
+## Security Features
 
-# Describe specific task (replace TASK_ID)
-aws ecs describe-tasks \
-  --cluster devops-exam-cluster-dev \
-  --tasks <TASK_ID>
-```
+This infrastructure implements **defense-in-depth** security:
+
+### 1. Network Security
+
+✅ **Private Subnets**: Microservices run in private subnets (10.0.10.0/24, 10.0.11.0/24) with no direct internet access
+
+✅ **Security Groups**: Strict firewall rules
+- ALB SG: Port 80 from 0.0.0.0/0
+- Service 1 SG: Port 8080 from ALB SG only
+- Service 2 SG: No inbound, outbound to AWS services only
+
+✅ **VPC Endpoints**: Private connections to AWS services (S3, SQS, ECR, SSM)
+- **No NAT Gateway needed** - all AWS traffic via private VPC endpoints
+- No traffic traverses public internet
+- Significant cost savings ($32/month) vs NAT Gateway approach
+- Improved security posture (no internet gateway route for private subnets)
+
+### 2. Secrets Management
+
+✅ **No Hardcoded Credentials**: API token stored in AWS SSM Parameter Store
+
+✅ **Encryption at Rest**: SSM parameter encrypted with AWS-managed key
+
+✅ **IAM-Based Access**: Service 1 retrieves token using task IAM role, not access keys
+
+✅ **Terraform Sensitive Variables**: `api_token` marked as sensitive (never logged)
+
+### 3. IAM Least Privilege
+
+✅ **Task-Specific Roles**:
+- **Service 1 Task Role**:
+  - `ssm:GetParameter` (read-only, specific parameter)
+  - `sqs:SendMessage` (specific queue only)
+- **Service 2 Task Role**:
+  - `sqs:ReceiveMessage`, `sqs:DeleteMessage` (specific queue)
+  - `s3:PutObject` (specific bucket only)
+
+✅ **No Wildcard Permissions**: All policies scoped to specific resource ARNs
+
+✅ **Separate Execution Role**: ECS task execution role for pulling images (separate from task role)
+
+### 4. Data Protection
+
+✅ **S3 Encryption**: Server-side encryption (SSE-S3) enabled by default
+
+✅ **S3 Versioning**: Enabled to protect against accidental deletions
+
+✅ **SQS Encryption**: Messages encrypted in transit and at rest
+
+✅ **Payload Validation**: Service 1 validates all 4 required fields before processing
+
+### 5. Monitoring & Auditing
+
+✅ **Container Insights**: Enabled for ECS cluster (see `10-ecs.tf` line 6)
+
+✅ **CloudWatch Logs**: All services log to CloudWatch with 7-day retention
+
+✅ **VPC Flow Logs** (Optional): Can be enabled for network traffic analysis
+
+---
 
 ## Network Architecture
 
 ### VPC Configuration
 
-- **CIDR Block**: 10.0.0.0/16 (65,536 IPs)
-- **Subnets**:
-  - Public Subnets: 10.0.0.0/24, 10.0.1.0/24 (ALB, NAT Gateway)
-  - Private Subnets: 10.0.10.0/24, 10.0.11.0/24 (ECS tasks)
+- **CIDR Block**: 10.0.0.0/16 (65,536 IP addresses)
+- **Availability Zones**: us-east-1a, us-east-1b (high availability)
 
-### Security Groups
+### Subnets
 
-| Security Group | Purpose | Inbound Rules |
-|----------------|---------|---------------|
-| ALB SG | Load balancer | 80 (HTTP) from 0.0.0.0/0 |
-| Service 1 SG | REST API containers | 5000 from ALB SG |
-| Service 2 SG | Consumer containers | None (outbound only) |
+| Type | CIDR | AZ | Purpose |
+|------|------|-----|---------|
+| Public 1 | 10.0.0.0/24 | us-east-1a | ALB |
+| Public 2 | 10.0.1.0/24 | us-east-1b | ALB (HA) |
+| Private 1 | 10.0.10.0/24 | us-east-1a | ECS tasks (Service 1, Service 2) |
+| Private 2 | 10.0.11.0/24 | us-east-1b | ECS tasks (HA) |
 
-### VPC Endpoints (Cost Optimization)
+### Routing
 
-Instead of routing through NAT Gateway, these services use VPC endpoints:
+**Public Subnets**:
+- Route to Internet Gateway (0.0.0.0/0 → igw)
+- Used for ALB only
 
-- **S3 Gateway Endpoint**: Free, for S3 access
-- **SQS Interface Endpoint**: $0.01/hour, for SQS access
-- **ECR API Interface Endpoint**: $0.01/hour, for pulling images
-- **ECR DKR Interface Endpoint**: $0.01/hour, for Docker registry
-- **SSM Interface Endpoint**: $0.01/hour, for parameter access
+**Private Subnets**:
+- **No NAT Gateway** - all AWS service access via VPC endpoints
+- No direct internet access (maximum security)
+- Cost optimization: Saves ~$32/month by using VPC endpoints instead of NAT
 
-**Cost Savings**: Eliminates NAT Gateway data transfer charges (~$0.045/GB).
+### VPC Endpoints
 
-## Cost Breakdown (Estimated)
+| Endpoint | Type | Purpose | Cost |
+|----------|------|---------|------|
+| **S3** | Gateway | S3 access from private subnets | Free |
+| **SQS** | Interface | SQS access without NAT | $7/month |
+| **ECR API** | Interface | Pull image manifests | $7/month |
+| **ECR DKR** | Interface | Pull Docker layers | $7/month |
+| **SSM** | Interface | Retrieve SSM parameters | $7/month |
 
-Based on AWS Free Tier and minimal usage:
+**Cost & Security Benefits**:
+- ✅ **No NAT Gateway**: Saves $32/month + data transfer costs (~$0.045/GB)
+- ✅ **Better Security**: Private subnets have no route to internet (even via NAT)
+- ✅ **Lower Latency**: Direct AWS PrivateLink connections to services
 
-| Service | Monthly Cost | Notes |
-|---------|--------------|-------|
-| ECS Fargate | $0-5 | 2 tasks × 0.25 vCPU × 0.5 GB RAM |
-| ALB | $16.20 | ~$0.0225/hour + minimal LCU charges |
-| NAT Gateway | $32.40 | ~$0.045/hour + data transfer |
-| VPC Endpoints | $3.60 | 4 endpoints × $0.01/hour |
-| S3 | $0-1 | Free Tier: 5GB storage, 20k GET, 2k PUT |
-| SQS | $0 | Free Tier: 1M requests/month |
-| ECR | $0-1 | Free Tier: 500MB storage |
-| CloudWatch Logs | $0-2 | Free Tier: 5GB ingestion |
+---
 
-**Total**: ~$55-60/month (mostly ALB + NAT Gateway)
+## Cost Breakdown
 
-**Free Tier Optimizations**:
-- Use VPC endpoints instead of NAT for supported services
-- Consider disabling NAT Gateway and using VPC endpoints only
-- Delete ALB when not actively testing
+### Monthly Cost Estimate (Free Tier)
 
-## Cleanup
+| Service | Specs | Monthly Cost | Free Tier |
+|---------|-------|--------------|-----------|
+| **ECS Fargate** | 2 tasks × 0.25 vCPU × 0.5 GB RAM | $0-5 | First 20 GB-hrs/month free |
+| **ALB** | Standard, minimal traffic | $16 | None |
+| **VPC Endpoints** | 4 interface endpoints | $28 | **No NAT Gateway!** |
+| **S3** | <5 GB storage, <20k requests | $0 | 5 GB, 20k GET, 2k PUT free |
+| **SQS** | <1M requests/month | $0 | 1M requests free |
+| **ECR** | <500 MB storage | $0 | 500 MB free |
+| **CloudWatch Logs** | <5 GB ingestion | $0 | 5 GB free |
 
-To avoid ongoing charges, destroy all resources:
+**Total Estimated Cost**: **$44-49/month**
 
-```bash
-# Destroy infrastructure
-terraform destroy
+**Breakdown**:
+- **Mandatory**: ALB ($16) + VPC Endpoints ($28) = $44/month
+- **NAT Gateway**: $0 (not used - VPC endpoints instead!)
+- **Negligible**: ECS, S3, SQS, ECR, CloudWatch (covered by free tier)
 
-# Confirm by typing: yes
+**Architecture Highlights**:
+- ✅ **No NAT Gateway**: Saves $32/month by using VPC endpoints for all AWS service access
+- ✅ **Better Security**: No internet gateway route for private subnets
+- ✅ **Lower Latency**: Direct private connections to AWS services
 
-# Optionally delete ECR images
-aws ecr batch-delete-image \
-  --repository-name devops-exam-service1-dev \
-  --image-ids imageTag=latest
+### Cost Optimization Tips
 
-aws ecr batch-delete-image \
-  --repository-name devops-exam-service2-dev \
-  --image-ids imageTag=latest
-```
+1. ✅ **Already Optimized**: No NAT Gateway (saves $32/month vs typical architectures)
+2. **Delete ALB when not testing**: Destroy/recreate for demos (saves $16/month when idle)
+3. **Reduce CloudWatch retention**: Change from 7 days to 1 day
+4. **Disable Container Insights**: Set `containerInsights = "disabled"` in `10-ecs.tf`
+5. **Stop ECS services**: Scale `desired_count` to 0 when not actively testing
 
-**Warning**: This permanently deletes:
-- All ECS tasks and services
-- S3 bucket and all stored messages
-- SQS queue and messages
-- VPC and networking components
-- ECR repositories
+---
 
 ## Troubleshooting
 
 ### Issue: ECS Tasks Not Starting
 
-```bash
-# Check task status
-aws ecs describe-tasks \
-  --cluster devops-exam-cluster-dev \
-  --tasks $(aws ecs list-tasks --cluster devops-exam-cluster-dev --service-name devops-exam-service1-dev --query 'taskArns[0]' --output text)
+**Symptoms**: Service shows `RUNNING` tasks = 0
 
-# Common causes:
-# - Image not pushed to ECR
-# - IAM role missing permissions
-# - Security group blocking traffic
+**Diagnosis**:
+```bash
+# List tasks (may be empty)
+aws ecs list-tasks --cluster devops-exam-cluster-dev --service-name devops-exam-service1-dev
+
+# If task exists, describe it
+aws ecs describe-tasks --cluster devops-exam-cluster-dev --tasks <TASK_ARN>
+
+# Check stopped tasks (for error messages)
+aws ecs list-tasks --cluster devops-exam-cluster-dev --desired-status STOPPED
+aws ecs describe-tasks --cluster devops-exam-cluster-dev --tasks <STOPPED_TASK_ARN>
 ```
+
+**Common Causes**:
+1. **Image not in ECR**: Push Docker images first
+2. **IAM role missing permissions**: Check `04-iam.tf`
+3. **Security group blocking traffic**: Verify security group rules
+4. **Task definition invalid**: Check CPU/memory limits (must be Fargate-compatible)
+
+---
 
 ### Issue: 502 Bad Gateway from ALB
 
+**Symptoms**: `curl` returns HTTP 502 instead of 200
+
+**Diagnosis**:
 ```bash
 # Check target group health
-aws elbv2 describe-target-health \
-  --target-group-arn $(terraform output -raw alb_target_group_arn 2>/dev/null || \
-    aws elbv2 describe-target-groups --names devops-exam-tg-dev --query 'TargetGroups[0].TargetGroupArn' --output text)
+TG_ARN=$(terraform output -raw alb_target_group_arn)
+aws elbv2 describe-target-health --target-group-arn $TG_ARN
 
-# Common causes:
-# - Tasks not running
-# - Health check failing (check /health endpoint)
-# - Security group not allowing ALB → ECS traffic
+# Status should be "healthy", not "unhealthy" or "draining"
 ```
+
+**Common Causes**:
+1. **Service 1 not running**: Check ECS service status
+2. **Health check failing**: Service 1 must respond to `/health` endpoint
+3. **Security group blocking ALB→Service 1**: Port 8080 must be open
+4. **Service 1 not listening on port 8080**: Check app logs
+
+---
 
 ### Issue: Messages Not Appearing in S3
 
+**Symptoms**: API returns success but S3 bucket is empty
+
+**Diagnosis**:
 ```bash
-# Check Service 2 logs
+# Check Service 2 logs for errors
 aws logs tail /ecs/devops-exam/service2 --since 5m
 
 # Check SQS queue for stuck messages
 QUEUE_URL=$(terraform output -raw sqs_queue_url)
-aws sqs get-queue-attributes --queue-url "$QUEUE_URL" --attribute-names All
+aws sqs get-queue-attributes \
+  --queue-url "$QUEUE_URL" \
+  --attribute-names ApproximateNumberOfMessages,ApproximateNumberOfMessagesNotVisible
 
-# Common causes:
-# - Service 2 not running
-# - IAM role missing S3 write permissions
-# - S3 bucket policy blocking writes
+# Check DLQ for failed messages
+DLQ_URL=$(terraform output -raw sqs_dlq_url)
+aws sqs receive-message --queue-url "$DLQ_URL" --max-number-of-messages 10
 ```
+
+**Common Causes**:
+1. **Service 2 not running**: Scale service to `desired_count=1`
+2. **IAM role missing S3 permissions**: Check `04-iam.tf` Service 2 task role
+3. **S3 bucket policy blocking writes**: Review `06-s3.tf`
+4. **Service 2 polling interval too long**: Default is 10 seconds
+
+---
 
 ### Issue: Terraform Apply Fails
 
-```bash
-# Check for AWS quota limits
-aws service-quotas list-service-quotas \
-  --service-code vpc \
-  --query 'Quotas[?QuotaName==`VPCs per Region`]'
+**Symptoms**: `terraform apply` errors during resource creation
 
-# Common causes:
-# - AWS quota limits reached
-# - Invalid credentials
-# - Region-specific resource availability
+**Common Errors**:
+
+**Error**: `InvalidParameter: VPC CIDR overlaps`
+**Solution**: Change `vpc_cidr` variable or destroy existing VPC
+
+**Error**: `LimitExceededException: Cannot exceed quota for PoliciesPerRole`
+**Solution**: Consolidate IAM policies or request quota increase
+
+**Error**: `AccessDenied: User is not authorized`
+**Solution**: Add required IAM permissions to AWS user
+
+**Error**: `AlreadyExists: LoadBalancer already exists`
+**Solution**: Check for conflicting ALB names, run `terraform destroy` first
+
+---
+
+### Issue: Can't Access SSM Parameter
+
+**Symptoms**: Service 1 logs show "Access Denied" for SSM
+
+**Solution**:
+```bash
+# Verify parameter exists
+aws ssm get-parameter --name /devops-exam/dev/api-token
+
+# Check IAM role policy
+aws iam get-policy-version \
+  --policy-arn $(terraform output -raw service1_task_role_policy_arn) \
+  --version-id v1
+
+# Should include ssm:GetParameter action
 ```
 
-## Outputs Reference
+---
 
-After successful deployment, Terraform provides these outputs:
+## Terraform Outputs Reference
+
+After successful deployment, use these outputs:
 
 | Output | Description | Example |
 |--------|-------------|---------|
-| `alb_url` | Service 1 API endpoint | http://devops-exam-alb-123.us-east-1.elb.amazonaws.com |
-| `ecr_service1_repository_url` | Service 1 image registry | 123456789.dkr.ecr.us-east-1.amazonaws.com/service1 |
-| `ecr_service2_repository_url` | Service 2 image registry | 123456789.dkr.ecr.us-east-1.amazonaws.com/service2 |
-| `s3_bucket_name` | Message storage bucket | devops-exam-messages-dev |
-| `sqs_queue_url` | Message queue URL | https://sqs.us-east-1.amazonaws.com/123/queue |
-| `vpc_id` | VPC identifier | vpc-0abc123def456 |
+| `alb_dns_name` | Service 1 API URL | `devops-exam-alb-123.us-east-1.elb.amazonaws.com` |
+| `ecr_service1_repository_url` | Service 1 ECR | `123456.dkr.ecr.us-east-1.amazonaws.com/service1` |
+| `ecr_service2_repository_url` | Service 2 ECR | `123456.dkr.ecr.us-east-1.amazonaws.com/service2` |
+| `s3_bucket_name` | Message storage | `devops-exam-messages-dev-abc123` |
+| `sqs_queue_url` | Main queue URL | `https://sqs.us-east-1.amazonaws.com/123/queue` |
+| `vpc_id` | VPC ID | `vpc-0abc123def456` |
 
-View all outputs:
+**View all outputs**:
 ```bash
 terraform output
 ```
 
-## Security Best Practices
+---
 
-This infrastructure implements several security best practices:
+## Cleanup
 
-1. **No Hardcoded Secrets**: API token stored in SSM Parameter Store (encrypted)
-2. **Private Subnets**: Microservices run in private subnets with no direct internet access
-3. **Least Privilege IAM**: Task roles have minimal required permissions
-4. **Security Groups**: Strict firewall rules, only necessary ports open
-5. **VPC Endpoints**: Internal AWS service communication (no internet traversal)
-6. **Encrypted Storage**: S3 bucket uses SSE-S3 encryption
-7. **Sensitive Variables**: `api_token` marked as sensitive in Terraform
+To destroy all infrastructure and avoid ongoing charges:
 
-## License
+```bash
+# Empty S3 bucket first (Terraform can't delete non-empty buckets)
+BUCKET=$(terraform output -raw s3_bucket_name)
+aws s3 rm s3://$BUCKET --recursive
 
-This infrastructure code is part of a DevOps home exam assignment.
+# Destroy all resources
+terraform destroy
 
-## Support
+# Confirm by typing: yes
+```
 
-For issues or questions:
-1. Check CloudWatch Logs for service errors
-2. Review [Troubleshooting](#troubleshooting) section
-3. Verify AWS service quotas and limits
-4. Ensure Docker images are pushed to ECR
+**What gets deleted**:
+- All ECS tasks and services (immediate shutdown)
+- S3 bucket (after manual emptying)
+- SQS queue and DLQ (messages lost)
+- VPC, subnets, VPC endpoints
+- ECR repositories (images remain unless explicitly deleted)
+- ALB and target groups
+- IAM roles and policies
+- SSM parameters
+- CloudWatch log groups
+
+**Warning**: This is **permanent** and cannot be undone.
+
+---
+
+## Additional Resources
+
+- [Terraform AWS Provider Docs](https://registry.terraform.io/providers/hashicorp/aws/latest/docs)
+- [AWS ECS Fargate Pricing](https://aws.amazon.com/fargate/pricing/)
+- [AWS Free Tier Details](https://aws.amazon.com/free/)
+- [VPC Endpoints Guide](https://docs.aws.amazon.com/vpc/latest/userguide/vpc-endpoints.html)
+- [ECS Best Practices](https://docs.aws.amazon.com/AmazonECS/latest/bestpracticesguide/intro.html)
+
+---
+
+**Related Documentation**:
+- [Main README](../README.md) - Project overview
+- [Microservices README](../microservices/README.md) - Service details and testing
+- [Workflows README](../.github/workflows/README.md) - CI/CD pipeline
+- [Monitoring README](monitoring/README.md) - Prometheus + Grafana setup
